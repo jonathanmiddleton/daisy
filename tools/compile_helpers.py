@@ -3,8 +3,22 @@ from torch._dynamo.eval_frame import innermost_fn
 import functools
 from tools.master_logger import MasterLogger
 from tools.helpers import _default_sanitizer
+import contextlib
+import torch
 
 logger = MasterLogger
+
+@contextlib.contextmanager
+def dynamo_force_static_param_shapes(value: bool, enabled: bool = True):
+    if not enabled:
+        yield
+        return
+    old = torch._dynamo.config.force_parameter_static_shapes
+    torch._dynamo.config.force_parameter_static_shapes = value
+    try:
+        yield
+    finally:
+        torch._dynamo.config.force_parameter_static_shapes = old
 
 def torch_get_guards_from_callable(fn: Callable, *args, **kwargs):
     """

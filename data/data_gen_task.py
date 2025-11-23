@@ -19,9 +19,12 @@ class _Shard:
         s, e = int(self.offsets[i]), int(self.offsets[i+1])
         return self.tokens[s:e], self.labels[s:e]
 
-def _pad(batch, pad_id: int):
+def next_multiple_of_n(v: float | int, *, n: int):
+    return next(x for x in range(n, int(v) + 1 + n, n) if x >= v)
+
+def _pad(batch, pad_id: int, length: int = 4):
     L = [len(x[0]) for x in batch]
-    T = max(L)
+    T = next_multiple_of_n(max(L), n=length)
     B = len(batch)
     x = torch.full((B, T), pad_id, dtype=torch.long)
     y = torch.full((B, T), -100, dtype=torch.long)

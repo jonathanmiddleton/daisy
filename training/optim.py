@@ -6,6 +6,8 @@ from typing import Any
 from torch import nn
 import math
 
+# from tools.compile_helpers import dynamo_force_static_param_shapes
+
 
 def derive_named_param_groups(model: nn.Module) -> dict[str, list[nn.Parameter]]:
     """Derive canonical named parameter groups from the model.
@@ -126,6 +128,7 @@ def update_faster(acc_bf16_view_u16: Tensor, mantissa: Tensor, momentum_buffer: 
     acc_bf16_view_u16.copy_((acc_m_u32 >> 16).to(torch.uint16))
     mantissa.copy_(acc_m_u32.to(torch.uint16))
 
+# with dynamo_force_static_param_shapes(False):
 @torch.compile
 def update_slower(acc: Tensor, momentum_buffer: Tensor, grad: Tensor, momentum: Tensor, eff_lr: Tensor,
                   eff_weight_decay: Tensor):

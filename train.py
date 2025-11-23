@@ -88,8 +88,12 @@ def maybe_compile(model: nn.Module, dynamic: bool = False) -> nn.Module:
         logger.info(f"Model compilation disabled: TORCH_DISABLE_MODEL_COMPILE={TORCH_DISABLE_MODEL_COMPILE}")
         return model
     else:
-        logger.info(f"Compiling model (dynamic={dynamic}). This may take several minutes.")
-        model = torch.compile(model, dynamic=dynamic)
+        backend = 'inductor' if device.type == 'cuda' else 'aot_eager'
+        use_dynamic = dynamic or is_sft
+        if is_sft:
+            torch._dynamo.config.force_parameter_static_shapes = False
+        logger.info(f"Compiling model (dynamic={use_dynamic} - True forced for SFT) (backend={backend}). This may take several minutes.")
+        model = torch.compile(model, dynamic=use_dynamic, backend=backend)
         return model
 
 
@@ -427,7 +431,7 @@ while progress.tokens_processed < progress.target_tokens:
         per_ds_results: list[tuple[str, dict]] = []
         for _label, _ev in _val_evals:
             _ev.reset_generator()
-            _out = _ev.eval(model=model, total_tokens=args.tot_val_tokens)
+            _out = _ev.eval(model=model, total_tokens=args.tot_val_tokens, is_sft=True)
             _world_batch = _ev.world_batch_tokens or 0
             _steps = args.tot_val_tokens // _world_batch if _world_batch > 0 else 0
             logger.info(
@@ -438,11 +442,11 @@ while progress.tokens_processed < progress.target_tokens:
 
         # Canonical/primary val metrics use the first dataset
         primary_label, primary_out = per_ds_results[0]
-        cur_val = float(primary_out.get("val_loss", float("nan")))
+        cur_val = float(primary_out.get("val_loss"))
         last_val_loss = cur_val
         ema_dloss_per_token = primary_out.get("ema_dloss_per_token", ema_dloss_per_token)
 
-        parts = [f"{lbl}:{float(out.get('val_loss', float('nan'))):.6f}" for lbl, out in per_ds_results]
+        parts = [f"{lbl}:{float(out.get('val_loss')):.6f}" for lbl, out in per_ds_results]
         logger.info(
             f"step:{step} tokens:{progress.tokens_processed:,}/{progress.target_tokens:,} (s={progress.s:.4f}) "
             + " ".join(parts)
@@ -459,7 +463,7 @@ while progress.tokens_processed < progress.target_tokens:
             "step": step,
         }
         for lbl, out in per_ds_results:
-            _loss = float(out.get("val_loss", float("nan")))
+            _loss = out.get("val_loss")
             wb[f"val/{lbl}/loss"] = _loss
             wb[f"val/{lbl}/ppl"] = math.exp(_loss) if _loss < 20 else float("inf")
         log_wandb(wb)
@@ -498,17 +502,22 @@ while progress.tokens_processed < progress.target_tokens:
     ga_steps = max(1, int(args.grad_acc_steps))
     total_train_loss = 0.0
     tokens_this_step = 0
-
+    skipped = False
     for micro_step in range(ga_steps):
         inputs, targets = next(_train_ddg)
 
         if is_sft:
             seq_len = inputs.size(-1)
             if seq_len > int(args.train_attention_window_len):
-                raise RuntimeError(
-                    f"SFT example length {seq_len} exceeds train_attention_window_len "
+                logger.warning(
+                    f"Skipping example: SFT example length {seq_len} exceeds train_attention_window_len "
                     f"{int(args.train_attention_window_len)}"
                 )
+                skipped = True
+                continue
+
+            in_idx = 1 if inputs.ndim == 2 else 0
+            torch._dynamo.mark_dynamic(inputs, in_idx, min=1, max=args.train_attention_window_len)
             tokens_this_step += int(seq_len)
 
         n_blocks = get_num_window_blocks(
@@ -522,6 +531,7 @@ while progress.tokens_processed < progress.target_tokens:
             f"targets.shape={targets.shape} targets.device.type={targets.device.type} n_blocks={n_blocks}"
         )
 
+        # with dynamo_force_static_param_shapes(True, enabled=(not is_sft)):
         with torch.autocast(device.type, dtype=torch.bfloat16):
             loss = model(inputs, n_blocks, targets)
 
@@ -531,74 +541,81 @@ while progress.tokens_processed < progress.target_tokens:
         loss_to_backward.backward()
         total_train_loss += float(loss.item())
 
-    opt2futures = {
-        opt: (
-            [
-                dist.all_reduce(p.grad, op=dist.ReduceOp.AVG, async_op=True).get_future()
-                for p in params
-                if p.grad is not None
-            ]
-            if use_distributed
-            else []
-        )
-        for opt, params in opt2params.items()
-    }
-
-    s = progress.s
-    lr_scale_base = get_lr_scale(args.learning_rate_schedule, s, args.cooldown_frac)
-    lr_scale = max(lr_scale_base, float(getattr(args, "learning_rate_floor", 0.0)))
-
-    for opt in optimizers:
-        if isinstance(opt, Muon):
-            continue
-        for group in opt.param_groups:
-            group["lr"] = group["initial_lr"] * lr_scale
-
-    for opt in optimizers:
-        if isinstance(opt, Muon):
-            for group in opt.param_groups:
-                frac = s
-                group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
-
-    for opt in optimizers:
-        if use_distributed:
-            torch.futures.collect_all(opt2futures[opt]).wait()
-        opt.step()
-    model.zero_grad(set_to_none=True)
-
-    if not is_sft:
-        progress.update(tokens_per_step * ga_steps)
-    else:
-        progress.update(tokens_this_step * world_size)
-
-    step += 1
-
-    train_loss_est = total_train_loss / ga_steps
-    approx_training_time_ms = training_time_ms + 1000 * (time.perf_counter() - t0)
-    if step == 9:
-        warmup_end = approx_training_time_ms
-    avg_step = (
-        f"avg_step:{(approx_training_time_ms - warmup_end) / max(step - 9, 1):.2f}ms"
-        if step >= 10
-        else "avg_step: (warmup to step 10)"
-    )
-    logger.info(
-        f"step:{step} train_loss:{train_loss_est:.4f} tokens:{progress.tokens_processed:,}/{progress.target_tokens:,} "
-        f"(s={progress.s:.4f}) train_time:{approx_training_time_ms:,.0f}ms {avg_step} "
-        f"lr_scale:{lr_scale:.4f} (base:{lr_scale_base:.4f} floor:{float(getattr(args, 'learning_rate_floor', 0.0)):.4f})"
-    )
-    log_wandb(
-        {
-            "train/loss": train_loss_est,
-            "train/ppl": math.exp(train_loss_est) if train_loss_est < 20 else float("inf"),
-            "tokens": progress.tokens_processed,
-            "s": progress.s,
-            "lr_scale": lr_scale,
-            "lr_scale_base": lr_scale_base,
-            "learning_rate_floor": float(getattr(args, "learning_rate_floor", 0.0)),
-            "train/time_ms": approx_training_time_ms,
+    if not skipped:
+        opt2futures = {
+            opt: (
+                [
+                    dist.all_reduce(p.grad, op=dist.ReduceOp.AVG, async_op=True).get_future()
+                    for p in params
+                    if p.grad is not None
+                ]
+                if use_distributed
+                else []
+            )
+            for opt, params in opt2params.items()
         }
-    )
+
+        s = progress.s
+        lr_scale_base = get_lr_scale(args.learning_rate_schedule, s, args.cooldown_frac)
+        lr_scale = max(lr_scale_base, float(getattr(args, "learning_rate_floor", 0.0)))
+
+        for opt in optimizers:
+            if isinstance(opt, Muon):
+                continue
+            for group in opt.param_groups:
+                group["lr"] = group["initial_lr"] * lr_scale
+
+        for opt in optimizers:
+            if isinstance(opt, Muon):
+                for group in opt.param_groups:
+                    frac = s
+                    group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
+
+        for opt in optimizers:
+            if use_distributed:
+                torch.futures.collect_all(opt2futures[opt]).wait()
+            opt.step()
+        model.zero_grad(set_to_none=True)
+
+        if not is_sft:
+            progress.update(tokens_per_step * ga_steps)
+        else:
+            progress.update(tokens_this_step * world_size)
+
+        step += 1
+
+        train_loss_est = total_train_loss / ga_steps
+
+        if use_distributed:
+            loss_tensor = torch.tensor(train_loss_est, device=device)
+            torch.distributed.all_reduce(loss_tensor, op=torch.distributed.ReduceOp.AVG)
+            train_loss_est = loss_tensor.item()
+
+        approx_training_time_ms = training_time_ms + 1000 * (time.perf_counter() - t0)
+        if step == 9:
+            warmup_end = approx_training_time_ms
+        avg_step = (
+            f"avg_step:{(approx_training_time_ms - warmup_end) / max(step - 9, 1):.2f}ms"
+            if step >= 10
+            else "avg_step: (warmup to step 10)"
+        )
+        logger.info(
+            f"step:{step} train_loss:{train_loss_est:.4f} tokens:{progress.tokens_processed:,}/{progress.target_tokens:,} "
+            f"(s={progress.s:.4f}) train_time:{approx_training_time_ms:,.0f}ms {avg_step} "
+            f"lr_scale:{lr_scale:.4f} (base:{lr_scale_base:.4f} floor:{float(getattr(args, 'learning_rate_floor', 0.0)):.4f})"
+        )
+        log_wandb(
+            {
+                "train/loss": train_loss_est,
+                "train/ppl": math.exp(train_loss_est) if train_loss_est < 20 else float("inf"),
+                "tokens": progress.tokens_processed,
+                "s": progress.s,
+                "lr_scale": lr_scale,
+                "lr_scale_base": lr_scale_base,
+                "learning_rate_floor": float(getattr(args, "learning_rate_floor", 0.0)),
+                "train/time_ms": approx_training_time_ms,
+            }
+        )
 
 # End of training: save final checkpoint
 if is_master and args.save_checkpoint:

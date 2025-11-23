@@ -47,7 +47,7 @@ full_windows: true
 # Gradient accumulation
 grad_acc_steps: 1
 # Evaluations
-val_loss_every_tokens:    131072
+val_loss_every_tokens:    32768
 # Checkpoints
 checkpoint_warmup_tokens:   1     # token warmup before checkpoints
 checkpoint_per_n_tokens:     1         # checkpoint interval by tokens

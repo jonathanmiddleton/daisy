@@ -69,7 +69,7 @@ class Hyperparameters:
     # Training Defaults
     training_sequence_length: int = 16384
     val_seq_len: int = 16384
-    total_val_tokens: int = 6144 # for SFT this may be 20 examples
+    tot_val_tokens: int = 6144 # for SFT this may be 20 examples
 
 
 def load_hparams_from_yaml(config_path: str) -> Hyperparameters:

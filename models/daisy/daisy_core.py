@@ -254,8 +254,9 @@ class DaisyCore(nn.Module):
         ve = [norm(value_embed(input_seq)) for value_embed in self.value_embeds]
         return ve
 
-    def forward(self, input_seq: Tensor, sliding_window_num_blocks: Tensor, target_seq: Tensor = None):
-        assert input_seq.ndim == 1
+    def forward(self, input_seq: Tensor, sliding_window_num_blocks: Tensor, target_seq: Tensor = None, loss_chunks: int = 4):
+        torch._assert(input_seq.ndim == 1, "input_seq must be 1D")
+        torch._assert(input_seq.numel() % 4 == 0 and not self.training, "input_seq must be divisible by 4 when not in training")
         L = len(self.blocks)
 
         ve = self.compute_value_embeddings(input_seq)
@@ -288,11 +289,12 @@ class DaisyCore(nn.Module):
             loss = F.cross_entropy(15 * logits * torch.rsqrt(logits.square() + 225), target_seq)
             return loss
 
-        # eval, assuming 4xtrain_seq_len
         loss = 0
-        for i in range(4):
-            logits: Tensor = F.linear(x.flatten(end_dim=1).chunk(4)[i].bfloat16(), self.lm_head_w.bfloat16()).float()
-            loss += F.cross_entropy(15 * logits * torch.rsqrt(logits.square() + 225), target_seq.chunk(4)[i]) / 4 # TODO enforce target_seq % 4 == 0
+        for i in range(loss_chunks):
+            logits: Tensor = F.linear(x.flatten(end_dim=1).chunk(loss_chunks)[i].bfloat16(), self.lm_head_w.bfloat16()).float()
+            logits = 15 * logits * torch.rsqrt(logits.square() + 225)
+            chunk = target_seq.chunk(loss_chunks)[i]
+            loss += F.cross_entropy(logits, chunk) / loss_chunks
         return loss
 
     def step(self, token_id: Tensor, k_ctxs, v_ctxs, pos: int, window: int):

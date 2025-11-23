@@ -82,7 +82,7 @@ class Evaluator:
             world_size = 1
         return local_tokens * world_size
 
-    def eval(self, model: nn.Module, total_tokens: int) -> Dict[str, float]:
+    def eval(self, model: nn.Module, total_tokens: int, is_sft: bool = False) -> Dict[str, float]:
         """
         Run evaluation on approximately 'total_tokens' global tokens.
 
@@ -115,16 +115,24 @@ class Evaluator:
 
         def run_step(x: torch.Tensor, y: torch.Tensor) -> None:
             nonlocal loss_acc
-            # Use final training schedule (s=1.0) for eval
+            # Use final training schedule (s=1.0) for eval; match train.py signature
             n_blocks = get_num_window_blocks(
-                schedule=1.0,
+                1.0,
                 attention_window_len=self._train_attention_window_len,
                 window_block_size=WINDOW_BLOCK_SIZE,
-            ).to(device)
+            ).to(device.type)
 
             with torch.no_grad():
                 with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
-                    loss = model(x, n_blocks, y)
+                    # model's chunking optimization for linear/cross_entropy will fail for SFT due to masking, producing NaN
+                    loss = model(x, n_blocks, y) if not is_sft else model(x, n_blocks, y, loss_chunks=1)
+
+            if torch.isnan(loss).any() or torch.isinf(loss).any():
+                raise RuntimeError(
+                    f"NaN/Inf loss during eval on rank {self._rank}: "
+                    f"inputs.shape={tuple(x.shape)}, targets.shape={tuple(y.shape)}, "
+                    f"n_blocks={n_blocks}"
+                )
 
             loss_acc += loss.detach()
 
