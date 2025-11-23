@@ -26,13 +26,6 @@ optimizers:
         lr: 0.110848               # instead of 0.1732
       - group: scalar_params
         lr: 0.01299                # can stay as-is (LVP is silent)
-#    params:
-#      - group: head_params
-#        lr: 0.003464
-#      - group: embed_params
-#        lr: 0.1732
-#      - group: scalar_params
-#        lr: 0.01299
   - type: Muon
     momentum: 0.95
     weight_decay: 0.0

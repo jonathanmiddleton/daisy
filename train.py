@@ -320,6 +320,55 @@ if train_mode == "pretrain":
         device=device.type,
     )
 
+    tokens_per_step = world_size * args.training_sequence_length
+
+elif train_mode == "task":
+    _train_ddg = TaskDataGenerator(
+        root=args.task_train_root,
+        split=getattr(args, "task_train_split", "train"),
+        batch_size=world_size,  # one example per rank
+        world_size=world_size,
+        rank=rank,
+        seed=int(getattr(args, "task_seed", 1337)),
+        device=device.type,
+        start_shard=_begin_shard,
+        drop_remainder=False,
+        infinite=True,
+        squeeze_singleton_batch=True,
+    )
+    # Eval setup specific to Task mode
+    if getattr(args, "task_val_root", None):
+        _ddg = TaskDataGenerator(
+            root=args.task_val_root,
+            split=getattr(args, "task_val_split", "val"),
+            batch_size=world_size,  # one example per rank
+            world_size=world_size,
+            rank=rank,
+            seed=int(getattr(args, "task_seed", 1337)),
+            device=device.type,
+            start_shard=None,
+            drop_remainder=False,
+            infinite=True,
+            squeeze_singleton_batch=True,
+        )
+        _eval = Evaluator(
+            data_generator=_ddg,
+            distributed_enabled=use_distributed,
+            rank=rank,
+            training_sequence_length=args.training_sequence_length,
+            val_type='task',
+            log_samples=getattr(args, "task_val_debug_log_samples", False)
+        )
+        _val_evals.append(("task", _eval))
+
+    # For Task SFT we use dynamic token counting; tokens_per_step is not meaningful.
+    tokens_per_step = None
+else:
+    raise ValueError(f"Unknown train_mode: {train_mode}")
+
+
+#  Common Eval Setup
+if len(args.val_shards) != 0:
     val_batch_size = world_size * args.val_seq_len
     if args.tot_val_tokens % val_batch_size != 0:
         raise ValueError(
@@ -341,57 +390,15 @@ if train_mode == "pretrain":
             distributed_enabled=use_distributed,
             rank=rank,
             training_sequence_length=args.training_sequence_length,
+            val_type='task'
         )
         _val_evals.append((_label, _eval))
-
-    tokens_per_step = world_size * args.training_sequence_length
-
-else:  # train_mode == "task"
-    _train_ddg = TaskDataGenerator(
-        root=args.task_train_root,
-        split=getattr(args, "task_train_split", "train"),
-        batch_size=world_size,  # one example per rank
-        world_size=world_size,
-        rank=rank,
-        seed=int(getattr(args, "task_seed", 1337)),
-        device=device.type,
-        start_shard=_begin_shard,
-        drop_remainder=False,
-        infinite=True,
-        squeeze_singleton_batch=True,
-    )
-
-    if getattr(args, "task_val_root", None):
-        _ddg = TaskDataGenerator(
-            root=args.task_val_root,
-            split=getattr(args, "task_val_split", "val"),
-            batch_size=world_size,  # one example per rank
-            world_size=world_size,
-            rank=rank,
-            seed=int(getattr(args, "task_seed", 1337)),
-            device=device.type,
-            start_shard=None,
-            drop_remainder=False,
-            infinite=True,
-            squeeze_singleton_batch=True,
-        )
-        _eval = Evaluator(
-            data_generator=_ddg,
-            distributed_enabled=use_distributed,
-            rank=rank,
-            training_sequence_length=args.training_sequence_length,
-            log_samples=getattr(args, "task_val_debug_log_samples", False)
-        )
-        _val_evals.append(("task", _eval))
-
-    # For Task SFT we use dynamic token counting; tokens_per_step is not meaningful.
-    tokens_per_step = None
 
 _ga_steps_cfg = max(1, int(args.grad_acc_steps))
 if tokens_per_step is not None:
     _tokens_per_optim_step = tokens_per_step * _ga_steps_cfg
 else:
-    # TODO: for Task SFT temporarily use an upper bound based on max sequence length for checkpoint metadata, should be better estimated but probably inconsiquential
+    # TODO: for Task SFT we temporarily use an upper bound based on max sequence length for checkpoint metadata, should be better estimated but probably inconsiquential
     _tokens_per_optim_step = int(args.training_sequence_length) * _ga_steps_cfg
 
 _eval_every_tokens = None
@@ -430,7 +437,7 @@ while progress.tokens_processed < progress.target_tokens:
         per_ds_results: list[tuple[str, dict]] = []
         for _label, _ev in _val_evals:
             _ev.reset_generator()
-            _out = _ev.eval(model=model, total_tokens=args.tot_val_tokens, is_task=True)
+            _out = _ev.eval(model=model, total_tokens=args.tot_val_tokens)
             _world_batch = _ev.world_batch_tokens or 0
             _steps = args.tot_val_tokens // _world_batch if _world_batch > 0 else 0
             logger.info(

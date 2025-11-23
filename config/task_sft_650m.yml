@@ -8,10 +8,14 @@ task_train_root: "data/instruct_tasks"
 task_train_split: "train"
 task_val_root: "data/instruct_tasks"   # optional
 task_val_split: "val"
-task_val_debug_log_samples: true # debug log, all ranks
+task_val_debug_log_samples: false # debug log, all ranks
+val_shards:
+  - type: "fineweb-edu"
+    path: "data/fineweb-edu/edu_fineweb_val_*.bin"
 
 # Run length: PER-RANK token budget
 target_tokens: 1_000_000
+# TODO tot_val_tokens should be specific to the val data set, not a global constant
 tot_val_tokens: 40000 # currently estimates target steps
 val_loss_every_tokens: 17000
 

@@ -40,6 +40,7 @@ class Evaluator:
         distributed_enabled: bool,
         rank: int,
         training_sequence_length: int,
+        val_type: str = "pretrain", # "pretrain" or "task"
         log_samples: bool = False,
         sample_log_path: Optional[str] = None,
         tokenizer_name: str = "gpt2"
@@ -47,7 +48,8 @@ class Evaluator:
         self._ddg = data_generator
         self._distributed_enabled = bool(distributed_enabled)
         self._rank = int(rank or 0)
-        self._train_attention_window_len = int(training_sequence_length)
+        self._training_sequence_length = int(training_sequence_length)
+        self._val_type = val_type
 
         # Approximate global tokens processed per eval step
         self._world_batch_tokens: Optional[int] = None
@@ -168,7 +170,7 @@ class Evaluator:
                 f"to '{self._sample_log_path}': {e}"
             )
 
-    def eval(self, model: nn.Module, total_tokens: int, is_task: bool = False) -> Dict[str, float]:
+    def eval(self, model: nn.Module, total_tokens: int) -> Dict[str, float]:
         """
         Run evaluation on approximately 'total_tokens' global tokens.
 
@@ -206,14 +208,14 @@ class Evaluator:
             # Use final training schedule (s=1.0) for eval; keep same signature style
             n_blocks = get_num_window_blocks(
                 schedule=1.0,
-                attention_window_len=self._train_attention_window_len,
+                attention_window_len=self._training_sequence_length,
                 window_block_size=WINDOW_BLOCK_SIZE,
             ).to(device)
 
             with torch.no_grad():
                 with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
                     # model's chunking optimization for linear/cross_entropy will fail for Tasks due to masking, producing NaN
-                    loss = model(x, n_blocks, y) if not is_task else model(x, n_blocks, y, loss_chunks=1)
+                    loss = model(x, n_blocks, y) if self._val_type == 'pretraining' else model(x, n_blocks, y, loss_chunks=1)
 
             # Optional per-sample debug logging
             self._log_sample(step_idx, loss, x, y)

@@ -55,7 +55,7 @@ class Hyperparameters:
     train_mode: str = "pretrain"  # "pretrain" or "task"
     train_shards: str = ""
     # List of evaluation datasets with descriptive type and path glob
-    val_shards: list[dict] = ""
+    val_shards: list[dict] = dataclasses.field(default_factory=list)
 
     # Task SFT train data
     task_train_root: Optional[str] = None  # e.g. "data/instruct_tasks"
