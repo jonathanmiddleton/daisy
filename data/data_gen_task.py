@@ -1,3 +1,4 @@
+import hashlib
 import os, math, numpy as np, torch, itertools, json
 from pathlib import Path
 
@@ -19,12 +20,9 @@ class _Shard:
         s, e = int(self.offsets[i]), int(self.offsets[i+1])
         return self.tokens[s:e], self.labels[s:e]
 
-def next_multiple_of_n(v: float | int, *, n: int):
-    return next(x for x in range(n, int(v) + 1 + n, n) if x >= v)
-
 def _pad(batch, pad_id: int, length: int = 4):
     L = [len(x[0]) for x in batch]
-    T = next_multiple_of_n(max(L), n=length)
+    T = max(L)
     B = len(batch)
     x = torch.full((B, T), pad_id, dtype=torch.long)
     y = torch.full((B, T), -100, dtype=torch.long)
@@ -33,6 +31,11 @@ def _pad(batch, pad_id: int, length: int = 4):
         x[i, :t] = torch.from_numpy(inp.astype(np.int64, copy=False))
         y[i, :t] = torch.from_numpy(lab.astype(np.int64, copy=False))
     return x, y
+
+def _stable_int_from_name(name: str) -> int:
+    h = hashlib.sha256(name.encode("utf-8")).digest()
+    # take first 8 bytes as an unsigned 64-bit int
+    return int.from_bytes(h[:8], "big")
 
 class TaskDataGenerator:
     def __init__(self, root: str, split: str, batch_size: int, world_size: int = 1, rank: int = 0, seed: int = 1337, device: str = "cpu", start_shard: int | None = None, drop_remainder: bool = False, infinite: bool = True, squeeze_singleton_batch: bool = True):
@@ -64,7 +67,10 @@ class TaskDataGenerator:
         self._shard = _Shard(d)
         n = len(self._shard)
         self._pad_id = self._shard.pad_id
-        self._rng = np.random.default_rng(self.seed ^ (hash(d.name) & 0xFFFFFFFF))
+
+        shard_salt = _stable_int_from_name(d.name) & 0xFFFFFFFF
+        self._rng = np.random.default_rng(self.seed ^ shard_salt)
+
         self._order = self._rng.permutation(n).tolist()
         self._pos = 0
 

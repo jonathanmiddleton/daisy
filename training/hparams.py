@@ -65,11 +65,12 @@ class Hyperparameters:
     sft_val_root: Optional[str] = None  # e.g. "data/instruct_tasks"
     sft_val_split: str = "val"
     sft_val_global_batch_size: int = 0  # if 0, default to sft_global_batch_size
+    sft_val_debug_log_samples: bool = False
 
     # Training Defaults
     training_sequence_length: int = 16384
     val_seq_len: int = 16384
-    tot_val_tokens: int = 6144 # for SFT this may be 20 examples
+    tot_val_tokens: int = 8760
 
 
 def load_hparams_from_yaml(config_path: str) -> Hyperparameters:

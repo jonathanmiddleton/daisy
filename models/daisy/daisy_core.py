@@ -256,7 +256,6 @@ class DaisyCore(nn.Module):
 
     def forward(self, input_seq: Tensor, sliding_window_num_blocks: Tensor, target_seq: Tensor = None, loss_chunks: int = 4):
         torch._assert(input_seq.ndim == 1, "input_seq must be 1D")
-        torch._assert(input_seq.numel() % 4 == 0 and not self.training, "input_seq must be divisible by 4 when not in training")
         L = len(self.blocks)
 
         ve = self.compute_value_embeddings(input_seq)
@@ -291,6 +290,7 @@ class DaisyCore(nn.Module):
 
         loss = 0
         for i in range(loss_chunks):
+            torch._assert(input_seq.numel() % loss_chunks == 0, f"input_seq must be divisible by {loss_chunks} when not in training")
             logits: Tensor = F.linear(x.flatten(end_dim=1).chunk(loss_chunks)[i].bfloat16(), self.lm_head_w.bfloat16()).float()
             logits = 15 * logits * torch.rsqrt(logits.square() + 225)
             chunk = target_seq.chunk(loss_chunks)[i]

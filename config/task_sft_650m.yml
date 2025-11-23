@@ -1,7 +1,7 @@
 # Logging
 wandb_log: true
 wandb_project: 'daisy-650m'
-wandb_run_name: '650m-task'
+wandb_run_name: '650m-task-test'
 # SFT
 train_mode: "sft"
 # SFT data
@@ -9,12 +9,16 @@ sft_train_root: "data/instruct_tasks"
 sft_train_split: "train"
 sft_val_root: "data/instruct_tasks"   # optional
 sft_val_split: "val"
+sft_val_debug_log_samples: true # debug log, all ranks
 
 # Run length: PER-RANK token budget
-target_tokens: 12_000_000
+target_tokens: 1_000_000
+tot_val_tokens: 40000 # currently estimates target steps
+val_loss_every_tokens: 17000
 
 # Hard max example length
-train_attention_window_len: 3456
+train_attention_window_len: 65536
+training_sequence_length: 65536
 # Checkpoint
 init_checkpoint: ""
 # Torch config
@@ -46,8 +50,6 @@ optimizers:
 full_windows: true
 # Gradient accumulation
 grad_acc_steps: 1
-# Evaluations
-val_loss_every_tokens:    32768
 # Checkpoints
 checkpoint_warmup_tokens:   1     # token warmup before checkpoints
 checkpoint_per_n_tokens:     1         # checkpoint interval by tokens

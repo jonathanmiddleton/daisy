@@ -266,8 +266,6 @@ if is_sft:
         raise ValueError("SFT mode requires 'sft_train_root'.")
     if int(args.target_tokens) <= 0:
         raise ValueError("SFT mode requires 'target_tokens' > 0.")
-    if int(args.train_attention_window_len) <= 0:
-        raise ValueError("SFT mode requires 'train_attention_window_len' > 0.")
 
 for m in model.modules():
     if isinstance(m, nn.Embedding):
@@ -342,7 +340,7 @@ if train_mode == "pretrain":
             data_generator=_ddg,
             distributed_enabled=use_distributed,
             rank=rank,
-            train_attention_window_len=args.train_attention_window_len,
+            training_sequence_length=args.training_sequence_length,
         )
         _val_evals.append((_label, _eval))
 
@@ -381,7 +379,8 @@ else:  # train_mode == "sft"
             data_generator=_ddg,
             distributed_enabled=use_distributed,
             rank=rank,
-            train_attention_window_len=args.train_attention_window_len,
+            training_sequence_length=args.training_sequence_length,
+            log_samples=getattr(args, "sft_val_debug_log_samples", False)
         )
         _val_evals.append(("sft", _eval))
 
@@ -392,8 +391,8 @@ _ga_steps_cfg = max(1, int(args.grad_acc_steps))
 if tokens_per_step is not None:
     _tokens_per_optim_step = tokens_per_step * _ga_steps_cfg
 else:
-    # SFT: use an upper bound based on attention window length for checkpoint metadata
-    _tokens_per_optim_step = int(args.train_attention_window_len) * _ga_steps_cfg
+    # TODO: for SFT temporarily use an upper bound based on max sequence length for checkpoint metadata, should be better estimated but probably inconsiquential
+    _tokens_per_optim_step = int(args.training_sequence_length) * _ga_steps_cfg
 
 _eval_every_tokens = None
 if _val_evals and int(args.val_loss_every_tokens) > 0:
@@ -508,16 +507,16 @@ while progress.tokens_processed < progress.target_tokens:
 
         if is_sft:
             seq_len = inputs.size(-1)
-            if seq_len > int(args.train_attention_window_len):
-                logger.warning(
-                    f"Skipping example: SFT example length {seq_len} exceeds train_attention_window_len "
-                    f"{int(args.train_attention_window_len)}"
+            if seq_len > int(args.training_sequence_length):
+                logger.debug(
+                    f"Skipping example: SFT example length {seq_len} exceeds training_sequence_length "
+                    f"{int(args.training_sequence_length)}"
                 )
                 skipped = True
                 continue
 
             in_idx = 1 if inputs.ndim == 2 else 0
-            torch._dynamo.mark_dynamic(inputs, in_idx, min=1, max=args.train_attention_window_len)
+            torch._dynamo.mark_dynamic(inputs, in_idx, min=1, max=args.training_sequence_length)
             tokens_this_step += int(seq_len)
 
         n_blocks = get_num_window_blocks(

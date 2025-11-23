@@ -76,7 +76,7 @@ def test_eval_consumes_total_tokens_globally_across_world_sizes(world_size, glob
             distributed_enabled=False,  # not actually using torch.distributed in this unit test
             world_size=world_size,
             rank=rank,
-            train_attention_window_len=128,
+            training_sequence_length=128,
         )
         model = ToyModel().eval()
 
@@ -113,7 +113,7 @@ def test_eval_uses_data_generator_batches_exactly():
             distributed_enabled=False,
             world_size=world_size,
             rank=rank,
-            train_attention_window_len=128,
+            training_sequence_length=128,
         )
         model = ToyModel().eval()
 
