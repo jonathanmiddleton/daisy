@@ -36,10 +36,10 @@ run_id = int(os.environ.get("RUN_ID", 0))
 ### End App Config ###
 
 train_mode = getattr(args, "train_mode", "pretrain")
-if train_mode not in ("pretrain", "sft"):
-    raise ValueError(f"Unsupported train_mode={train_mode!r}; expected 'pretrain' or 'sft'.")
+if train_mode not in ("pretrain", "task"):
+    raise ValueError(f"Unsupported train_mode={train_mode!r}; expected 'pretrain' or 'task'.")
 
-is_sft = (train_mode == "sft")
+is_task = (train_mode == "task")
 
 ########################################
 #        Torch Setup                   #
@@ -89,10 +89,10 @@ def maybe_compile(model: nn.Module, dynamic: bool = False) -> nn.Module:
         return model
     else:
         backend = 'inductor' if device.type == 'cuda' else 'aot_eager'
-        use_dynamic = dynamic or is_sft
-        if is_sft:
+        use_dynamic = dynamic or is_task
+        if is_task:
             torch._dynamo.config.force_parameter_static_shapes = False
-        logger.info(f"Compiling model (dynamic={use_dynamic} - True forced for SFT) (backend={backend}). This may take several minutes.")
+        logger.info(f"Compiling model (dynamic={use_dynamic}) (backend={backend}). This may take several minutes.")
         model = torch.compile(model, dynamic=use_dynamic, backend=backend)
         return model
 
@@ -261,11 +261,11 @@ logger.info("Hyperparameters:\n" + json.dumps(asdict(args), indent=2, sort_keys=
 # Ensure wandb sees the final effective hyperparameters (after overrides and any rehydration)
 update_wandb_config(asdict(args))  # TODO without diff of checkpoint/model_spec_from_args the reported model args may be incorrect
 
-if is_sft:
-    if not getattr(args, "sft_train_root", None):
-        raise ValueError("SFT mode requires 'sft_train_root'.")
+if is_task:
+    if not getattr(args, "task_train_root", None):
+        raise ValueError("Task mode requires 'task_train_root'.")
     if int(args.target_tokens) <= 0:
-        raise ValueError("SFT mode requires 'target_tokens' > 0.")
+        raise ValueError("Task mode requires 'target_tokens' > 0.")
 
 for m in model.modules():
     if isinstance(m, nn.Embedding):
@@ -346,14 +346,14 @@ if train_mode == "pretrain":
 
     tokens_per_step = world_size * args.training_sequence_length
 
-else:  # train_mode == "sft"
+else:  # train_mode == "task"
     _train_ddg = TaskDataGenerator(
-        root=args.sft_train_root,
-        split=getattr(args, "sft_train_split", "train"),
+        root=args.task_train_root,
+        split=getattr(args, "task_train_split", "train"),
         batch_size=world_size,  # one example per rank
         world_size=world_size,
         rank=rank,
-        seed=int(getattr(args, "sft_seed", 1337)),
+        seed=int(getattr(args, "task_seed", 1337)),
         device=device.type,
         start_shard=_begin_shard,
         drop_remainder=False,
@@ -361,14 +361,14 @@ else:  # train_mode == "sft"
         squeeze_singleton_batch=True,
     )
 
-    if getattr(args, "sft_val_root", None):
+    if getattr(args, "task_val_root", None):
         _ddg = TaskDataGenerator(
-            root=args.sft_val_root,
-            split=getattr(args, "sft_val_split", "val"),
+            root=args.task_val_root,
+            split=getattr(args, "task_val_split", "val"),
             batch_size=world_size,  # one example per rank
             world_size=world_size,
             rank=rank,
-            seed=int(getattr(args, "sft_seed", 1337)),
+            seed=int(getattr(args, "task_seed", 1337)),
             device=device.type,
             start_shard=None,
             drop_remainder=False,
@@ -380,18 +380,18 @@ else:  # train_mode == "sft"
             distributed_enabled=use_distributed,
             rank=rank,
             training_sequence_length=args.training_sequence_length,
-            log_samples=getattr(args, "sft_val_debug_log_samples", False)
+            log_samples=getattr(args, "task_val_debug_log_samples", False)
         )
-        _val_evals.append(("sft", _eval))
+        _val_evals.append(("task", _eval))
 
-    # For SFT we use dynamic token counting; tokens_per_step is not meaningful.
+    # For Task SFT we use dynamic token counting; tokens_per_step is not meaningful.
     tokens_per_step = None
 
 _ga_steps_cfg = max(1, int(args.grad_acc_steps))
 if tokens_per_step is not None:
     _tokens_per_optim_step = tokens_per_step * _ga_steps_cfg
 else:
-    # TODO: for SFT temporarily use an upper bound based on max sequence length for checkpoint metadata, should be better estimated but probably inconsiquential
+    # TODO: for Task SFT temporarily use an upper bound based on max sequence length for checkpoint metadata, should be better estimated but probably inconsiquential
     _tokens_per_optim_step = int(args.training_sequence_length) * _ga_steps_cfg
 
 _eval_every_tokens = None
@@ -430,7 +430,7 @@ while progress.tokens_processed < progress.target_tokens:
         per_ds_results: list[tuple[str, dict]] = []
         for _label, _ev in _val_evals:
             _ev.reset_generator()
-            _out = _ev.eval(model=model, total_tokens=args.tot_val_tokens, is_sft=True)
+            _out = _ev.eval(model=model, total_tokens=args.tot_val_tokens, is_task=True)
             _world_batch = _ev.world_batch_tokens or 0
             _steps = args.tot_val_tokens // _world_batch if _world_batch > 0 else 0
             logger.info(
@@ -505,11 +505,11 @@ while progress.tokens_processed < progress.target_tokens:
     for micro_step in range(ga_steps):
         inputs, targets = next(_train_ddg)
 
-        if is_sft:
+        if is_task:
             seq_len = inputs.size(-1)
             if seq_len > int(args.training_sequence_length):
                 logger.debug(
-                    f"Skipping example: SFT example length {seq_len} exceeds training_sequence_length "
+                    f"Skipping example: Task example length {seq_len} exceeds training_sequence_length "
                     f"{int(args.training_sequence_length)}"
                 )
                 skipped = True
@@ -530,7 +530,7 @@ while progress.tokens_processed < progress.target_tokens:
             f"targets.shape={targets.shape} targets.device.type={targets.device.type} n_blocks={n_blocks}"
         )
 
-        # with dynamo_force_static_param_shapes(True, enabled=(not is_sft)):
+        # with dynamo_force_static_param_shapes(True, enabled=(not is_task)):
         with torch.autocast(device.type, dtype=torch.bfloat16):
             loss = model(inputs, n_blocks, targets)
 
@@ -576,7 +576,7 @@ while progress.tokens_processed < progress.target_tokens:
             opt.step()
         model.zero_grad(set_to_none=True)
 
-        if not is_sft:
+        if not is_task:
             progress.update(tokens_per_step * ga_steps)
         else:
             progress.update(tokens_this_step * world_size)

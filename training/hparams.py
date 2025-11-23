@@ -52,20 +52,20 @@ class Hyperparameters:
     init_checkpoint: str | None = None
     value_embeddings: bool = True
     tied_embeddings: bool = False
-    train_mode: str = "pretrain"  # "pretrain" or "sft"
+    train_mode: str = "pretrain"  # "pretrain" or "task"
     train_shards: str = ""
     # List of evaluation datasets with descriptive type and path glob
     val_shards: list[dict] = ""
 
-    # SFT train data
-    sft_train_root: Optional[str] = None  # e.g. "data/instruct_tasks"
-    sft_train_split: str = "train"  # "train" / "val" / "test"
-    sft_global_batch_size: int = 0  # total examples across all ranks
-    # SFT val data
-    sft_val_root: Optional[str] = None  # e.g. "data/instruct_tasks"
-    sft_val_split: str = "val"
-    sft_val_global_batch_size: int = 0  # if 0, default to sft_global_batch_size
-    sft_val_debug_log_samples: bool = False
+    # Task SFT train data
+    task_train_root: Optional[str] = None  # e.g. "data/instruct_tasks"
+    task_train_split: str = "train"  # "train" / "val" / "test"
+    task_global_batch_size: int = 0  # total examples across all ranks
+    # Task SFT val data
+    task_val_root: Optional[str] = None  # e.g. "data/instruct_tasks"
+    task_val_split: str = "val"
+    task_val_global_batch_size: int = 0  # if 0, default to task_global_batch_size
+    task_val_debug_log_samples: bool = False
 
     # Training Defaults
     training_sequence_length: int = 16384
@@ -127,7 +127,7 @@ def load_hparams_from_yaml(config_path: str) -> Hyperparameters:
     if missing:
         raise ValueError(f"Missing required hyperparameter(s) in {used_path}: {missing}")
 
-    #TODO properly validate : train/val or sft_train/sft_val is set along with below
+    #TODO properly validate : train/val or task_train/task_val is set along with below
 
     # Normalize and validate
     if cfg_dict.get("train_mode") == "pretrain":

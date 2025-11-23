@@ -6,7 +6,6 @@ wandb_run_name: '650m-instruct'
 torch.coordinate_descent_tuning: false
 # Pretraining checkpoint path
 init_checkpoint: ""
-# Instruct SFT training configuration
 train_shards: "data/instruct_mix/instruct_train_*.bin"
 target_tokens: 2_595_225_600 # 2595225600
 cooldown_frac: 0.999

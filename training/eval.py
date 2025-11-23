@@ -27,7 +27,7 @@ class Evaluator:
     Generic evaluator that works with any data generator yielding (inputs, targets).
 
     - For pretraining: typically used with DistributedDataGenerator (1D token streams).
-    - For SFT: typically used with TaskDataGenerator (instruction/response sequences).
+    - For Task SFT: typically used with TaskDataGenerator (instruction/response sequences).
 
     The 'total_tokens' argument to eval() is interpreted as a *global* token
     budget for this evaluation call. The evaluator will consume enough batches
@@ -168,7 +168,7 @@ class Evaluator:
                 f"to '{self._sample_log_path}': {e}"
             )
 
-    def eval(self, model: nn.Module, total_tokens: int, is_sft: bool = False) -> Dict[str, float]:
+    def eval(self, model: nn.Module, total_tokens: int, is_task: bool = False) -> Dict[str, float]:
         """
         Run evaluation on approximately 'total_tokens' global tokens.
 
@@ -212,8 +212,8 @@ class Evaluator:
 
             with torch.no_grad():
                 with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
-                    # model's chunking optimization for linear/cross_entropy will fail for SFT due to masking, producing NaN
-                    loss = model(x, n_blocks, y) if not is_sft else model(x, n_blocks, y, loss_chunks=1)
+                    # model's chunking optimization for linear/cross_entropy will fail for Tasks due to masking, producing NaN
+                    loss = model(x, n_blocks, y) if not is_task else model(x, n_blocks, y, loss_chunks=1)
 
             # Optional per-sample debug logging
             self._log_sample(step_idx, loss, x, y)

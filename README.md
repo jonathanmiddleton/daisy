@@ -259,7 +259,7 @@ daisy/
 │   ├── pretrain_1.6B.yml       # 1.6B pretraining config
 │   ├── pretrain_150m.yml       # 150M pretraining config
 │   ├── fine_tune_450m.yml      # Fine-tuning configs
-│   └── instruct_sft_450m.yml   # Instruction tuning configs
+│   └── instruct_task_450m.yml   # Instruction tuning configs
 │
 ├── model_specs/                 # Model architecture definitions (YAML)
 │   ├── daisy_450m.yml          # 450M architecture spec

@@ -3,13 +3,12 @@ wandb_log: true
 wandb_project: 'daisy-650m'
 wandb_run_name: '650m-task-test'
 # SFT
-train_mode: "sft"
-# SFT data
-sft_train_root: "data/instruct_tasks"
-sft_train_split: "train"
-sft_val_root: "data/instruct_tasks"   # optional
-sft_val_split: "val"
-sft_val_debug_log_samples: true # debug log, all ranks
+train_mode: "task"
+task_train_root: "data/instruct_tasks"
+task_train_split: "train"
+task_val_root: "data/instruct_tasks"   # optional
+task_val_split: "val"
+task_val_debug_log_samples: true # debug log, all ranks
 
 # Run length: PER-RANK token budget
 target_tokens: 1_000_000
