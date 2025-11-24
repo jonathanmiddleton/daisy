@@ -9,9 +9,9 @@ from models.daisy.functional import norm, init_linear
 
 WINDOW_BLOCK_SIZE = 128
 
-def is_flex_available(enable_for_cpu: bool = False):
+def is_flex_available(enable_for_cpu: bool = False, dynamic_shapes: bool = False):
     # FlexAttention is supported only on cuda (limited on CPU)
-    return torch.cuda.is_available() or enable_for_cpu
+    return (not dynamic_shapes) and (torch.cuda.is_available() or enable_for_cpu)
 
 
 def _apply_rope(x_BTHD, cos, sin):
@@ -78,6 +78,7 @@ class CausalSelfAttention(nn.Module):
         self.num_heads = num_heads
         self.head_dim: int = head_dim
         self.m_dim = dim
+        self.dynamic_shapes = dynamic_shapes
         # merged QKV weights: suggested by many, implemented by @fernbear.bsky.social, and further improved by @YouJiacheng
         # https://x.com/hi_tysam/status/1879699187107033311
         self.qkvo_w = nn.Parameter(init_linear(torch.empty(4, self.m_dim, self.m_dim)).bfloat16())
@@ -90,7 +91,7 @@ class CausalSelfAttention(nn.Module):
         self.last_q = None
         self.last_k = None
 
-        if is_flex_available() and not dynamic_shapes: # dynamic shapes fail because of implied constraints within BlockMask
+        if is_flex_available(dynamic_shapes=self.dynamic_shapes): # dynamic shapes fail because of implied constraints within BlockMask
             self.forward = self.forward_flex
         else:
             self.forward = self.forward_sdpa
@@ -146,6 +147,7 @@ class CausalSelfAttention(nn.Module):
         return y
 
     def forward_flex(self, x: torch.Tensor, ve: torch.Tensor, sa_lambdas: torch.Tensor, block_mask: BlockMask, attn_mask: Tensor):
+        assert False, "TODO DEBUG" #TODO remove
         B, T = x.size(0), x.size(1)
         q_, k_, v_ = self._qkv_common(x, ve, sa_lambdas)
         y = _flex_call(q_, k_, v_, block_mask=block_mask, scale=self.attn_scale)
