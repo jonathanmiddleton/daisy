@@ -341,6 +341,7 @@ if train_mode == "pretrain":
     tokens_per_step = world_size * args.training_sequence_length
 
 elif train_mode == "task":
+    pad_to_multiple = WINDOW_BLOCK_SIZE if device.type == "cuda" else 1
     _train_ddg = TaskDataGenerator(
         root=args.task_train_root,
         split=getattr(args, "task_train_split", "train"),
@@ -353,7 +354,7 @@ elif train_mode == "task":
         drop_remainder=False,
         infinite=True,
         squeeze_singleton_batch=True,
-        pad_to_multiple=(WINDOW_BLOCK_SIZE if device.type == "cuda" else 1)
+        pad_to_multiple=pad_to_multiple
     )
     _task_val_shards = getattr(args, "task_val_shards", []) or []
     for _v in _task_val_shards:
@@ -373,6 +374,7 @@ elif train_mode == "task":
             drop_remainder=False,
             infinite=True,
             squeeze_singleton_batch=True,
+            pad_to_multiple=pad_to_multiple
         )
         _eval = Evaluator(
             data_generator=_ddg,
