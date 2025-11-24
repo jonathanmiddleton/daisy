@@ -204,7 +204,7 @@ class DaisyCore(nn.Module):
     def create_blockmasks(self, input_seq: Tensor, sliding_window_num_blocks: Tensor, L: int):
         global WINDOW_BLOCK_SIZE
         BLOCK_SIZE = WINDOW_BLOCK_SIZE
-        torch._assert(len(input_seq) % BLOCK_SIZE == 0, "input_seq must be divisible by BLOCK_SIZE")
+        torch._assert(len(input_seq) % BLOCK_SIZE == 0, f"input_seq length {len(input_seq)} must be divisible by BLOCK_SIZE {BLOCK_SIZE}")
         device = input_seq.device
         docs = (input_seq == self.eos_token_id).cumsum(0)
 
