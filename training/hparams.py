@@ -67,6 +67,9 @@ class Hyperparameters:
     task_val_global_batch_size: int = 0  # if 0, default to task_global_batch_size
     task_val_debug_log_samples: bool = False
 
+    # Each item: {type: str, path: str, split: str = 'val', target_tokens: int}
+    task_val_shards: list[dict] = dataclasses.field(default_factory=list)
+
     # Training Defaults
     training_sequence_length: int = 16384
     val_seq_len: int = 16384
@@ -133,21 +136,83 @@ def load_hparams_from_yaml(config_path: str) -> Hyperparameters:
     if cfg_dict.get("train_mode") == "pretrain":
         vcfg = cfg_dict.get("val_shards")
         if not isinstance(vcfg, list) or len(vcfg) == 0:
-            raise ValueError("val_shards must be a non-empty list of objects with 'path' and optional 'type' fields")
+            raise ValueError("val_shards must be a non-empty list of objects with 'path' and optional 'type', 'target_tokens' fields")
         norm_list: list[dict] = []
         for i, item in enumerate(vcfg, start=1):
             if not isinstance(item, dict):
-                raise ValueError(f"val_shards[{i}] must be a mapping with keys: path (str), type (str, optional)")
+                raise ValueError(f"val_shards[{i}] must be a mapping with keys: path (str), type (str, optional), target_tokens (int, optional)")
             path = item.get("path")
             vtype = item.get("type")
+            t_tokens = item.get("target_tokens")
             if not isinstance(path, str) or not path:
                 raise ValueError(f"val_shards[{i}].path must be a non-empty string")
             if vtype is not None and not isinstance(vtype, str):
                 raise ValueError(f"val_shards[{i}].type must be a string when provided")
+            if t_tokens is not None:
+                try:
+                    t_tokens = int(t_tokens)
+                    if t_tokens <= 0:
+                        raise ValueError
+                except Exception:
+                    raise ValueError(f"val_shards[{i}].target_tokens must be a positive integer when provided")
             if vtype is None:
                 vtype = f"val{i}"
-            norm_list.append({"type": vtype, "path": path})
+            entry = {"type": vtype, "path": path}
+            if t_tokens is not None:
+                entry["target_tokens"] = t_tokens
+            norm_list.append(entry)
         cfg_dict["val_shards"] = norm_list
+
+    # Task SFT validation shards normalization (hierarchical style)
+    # Backward-compat: if task_val_shards not provided, but legacy task_val_root/split present,
+    # synthesize a default shard using tot_val_tokens as target_tokens when available.
+    if cfg_dict.get("train_mode") == "task":
+        tvs = cfg_dict.get("task_val_shards")
+        if tvs is None or (isinstance(tvs, list) and len(tvs) == 0):
+            legacy_root = cfg_dict.get("task_val_root")
+            legacy_split = cfg_dict.get("task_val_split", "val")
+            if legacy_root:
+                # Determine per-shard tokens from global tot_val_tokens if present, else default to 40000
+                per_tokens = cfg_dict.get("tot_val_tokens", 40000)
+                try:
+                    per_tokens = int(per_tokens)
+                except Exception:
+                    per_tokens = 40000
+                cfg_dict["task_val_shards"] = [{
+                    "type": "instruct-tasks",
+                    "path": str(legacy_root),
+                    "split": str(legacy_split or "val"),
+                    "target_tokens": int(per_tokens),
+                }]
+        # Validate/normalize provided task_val_shards
+        tvs = cfg_dict.get("task_val_shards", [])
+        norm_task_list: list[dict] = []
+        if not isinstance(tvs, list):
+            raise ValueError("task_val_shards must be a list of objects with keys: path (str), split (str, optional), type (str, optional), target_tokens (int)")
+        for i, item in enumerate(tvs, start=1):
+            if not isinstance(item, dict):
+                raise ValueError(f"task_val_shards[{i}] must be a mapping")
+            path = item.get("path")
+            vtype = item.get("type") or f"task_val{i}"
+            split = item.get("split", "val")
+            t_tokens = item.get("target_tokens")
+            if not isinstance(path, str) or not path:
+                raise ValueError(f"task_val_shards[{i}].path must be a non-empty string")
+            if not isinstance(split, str) or not split:
+                raise ValueError(f"task_val_shards[{i}].split must be a non-empty string when provided")
+            try:
+                t_tokens = int(t_tokens)
+                if t_tokens <= 0:
+                    raise ValueError
+            except Exception:
+                raise ValueError(f"task_val_shards[{i}].target_tokens must be a positive integer")
+            norm_task_list.append({
+                "type": vtype,
+                "path": path,
+                "split": split,
+                "target_tokens": t_tokens,
+            })
+        cfg_dict["task_val_shards"] = norm_task_list
 
     args = Hyperparameters(**cfg_dict)
 

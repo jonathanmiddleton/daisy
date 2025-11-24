@@ -308,14 +308,14 @@ maybe_reset_peak_memory_stats()
 _begin_shard_env = os.environ.get("BEGIN_SHARD")
 _begin_shard = int(_begin_shard_env) if _begin_shard_env not in (None, "",) else None
 
-_val_evals: list[tuple[str, Evaluator]] = []
+_val_evals: list[tuple[str, Evaluator, int]] = []
 
 if train_mode == "pretrain":
     _train_ddg = DistributedDataGenerator(
-        args.train_shards,
-        world_size * args.training_sequence_length,
-        rank,
-        world_size,
+        filename_pattern=args.train_shards,
+        batch_size=world_size * args.training_sequence_length,
+        rank=rank,
+        world_size=world_size,
         start_shard=_begin_shard,
         device=device.type,
     )
@@ -336,11 +336,15 @@ elif train_mode == "task":
         infinite=True,
         squeeze_singleton_batch=True,
     )
-    # Eval setup specific to Task mode
-    if getattr(args, "task_val_root", None):
+    _task_val_shards = getattr(args, "task_val_shards", []) or []
+    for _v in _task_val_shards:
+        _label = _v.get("type", "task")
+        _path = _v.get("path")
+        _split = _v.get("split", "val")
+        _tokens = int(_v.get("target_tokens"))
         _ddg = TaskDataGenerator(
-            root=args.task_val_root,
-            split=getattr(args, "task_val_split", "val"),
+            root=_path,
+            split=_split,
             batch_size=world_size,  # one example per rank
             world_size=world_size,
             rank=rank,
@@ -359,7 +363,7 @@ elif train_mode == "task":
             val_type='task',
             log_samples=getattr(args, "task_val_debug_log_samples", False)
         )
-        _val_evals.append(("task", _eval))
+        _val_evals.append((_label, _eval, _tokens))
 
     # For Task SFT we use dynamic token counting; tokens_per_step is not meaningful.
     tokens_per_step = None
@@ -367,17 +371,18 @@ else:
     raise ValueError(f"Unknown train_mode: {train_mode}")
 
 
-#  Common Eval Setup
+#  Common Eval Setup (pretraining-style token streams)
 if len(args.val_shards) != 0:
     val_batch_size = world_size * args.val_seq_len
-    if args.tot_val_tokens % val_batch_size != 0:
-        raise ValueError(
-            f"tot_val_tokens ({args.tot_val_tokens}) must be divisible by val_batch_size ({val_batch_size})"
-        )
-
+    # Build evaluators; allow optional per-shard target_tokens, else fall back to global tot_val_tokens
     for _v in args.val_shards:
         _label = _v.get("type")
         _path = _v.get("path")
+        _tokens = int(_v.get("target_tokens", 0))
+        if _tokens > 0 and _tokens % val_batch_size != 0:
+            raise ValueError(
+                f"val shard '{_label}': target_tokens ({_tokens}) must be divisible by val_batch_size ({val_batch_size})"
+            )
         _ddg = DistributedDataGenerator(
             _path,
             val_batch_size,
@@ -392,7 +397,7 @@ if len(args.val_shards) != 0:
             training_sequence_length=args.training_sequence_length,
             val_type='task'
         )
-        _val_evals.append((_label, _eval))
+        _val_evals.append((_label, _eval, _tokens))
 
 _ga_steps_cfg = max(1, int(args.grad_acc_steps))
 if tokens_per_step is not None:
@@ -435,14 +440,15 @@ while progress.tokens_processed < progress.target_tokens:
         model.eval()
 
         per_ds_results: list[tuple[str, dict]] = []
-        for _label, _ev in _val_evals:
+        for _label, _ev, _tot_tokens in _val_evals:
+            _tot = int(_tot_tokens)
             _ev.reset_generator()
-            _out = _ev.eval(model=model, total_tokens=args.tot_val_tokens)
+            _out = _ev.eval(model=model, total_tokens=_tot)
             _world_batch = _ev.world_batch_tokens or 0
-            _steps = args.tot_val_tokens // _world_batch if _world_batch > 0 else 0
+            _steps = _tot // _world_batch if _world_batch > 0 else 0
             logger.info(
-                f"[eval] dataset={_label} steps={_steps} "
-                f"(global_batch_tokens={_world_batch}, tot_tokens={args.tot_val_tokens})"
+                f"[eval] dataset={_label} approx_steps={_steps} "
+                f"(global_batch_tokens={_world_batch}, tot_tokens={_tot})"
             )
             per_ds_results.append((_label, _out))
 
