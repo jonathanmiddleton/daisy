@@ -252,7 +252,7 @@ _resume_tokens_per_step: Optional[int] = None
 _ckpt_obj = None
 if args.init_checkpoint:
     # TODO diff args/hparams/modelspec from checkpoint
-    model, hparams = model_from_checkpoint(args.init_checkpoint, device=device)
+    model, hparams = model_from_checkpoint(args.init_checkpoint, device=device, dynamic_shapes=is_task) #dynamic_shapes required for variable task shapes
     logger.info("Rehydrated model from checkpoint.")
 else:
     # Initialize rotary buffers with the maximum sequence length that the model might see
