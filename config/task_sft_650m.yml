@@ -28,7 +28,7 @@ training_sequence_length: 65536
 # Checkpoint
 init_checkpoint: ""
 # Torch config
-torch.coordinate_descent_tuning: true
+torch.coordinate_descent_tuning: false
 
 cooldown_frac: 0.999
 learning_rate_floor: 0.1
