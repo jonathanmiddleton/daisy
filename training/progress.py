@@ -48,7 +48,7 @@ class ProgressMeter:
         self.target_tokens = int(target_tokens)
         self.tokens_processed = 0
         self.eval_every_tokens = int(eval_every_tokens) if eval_every_tokens else None
-        self.next_eval_at = self.eval_every_tokens if self.eval_every_tokens else None
+        self.next_eval_at = 0
         # checkpoint schedule: allow 0 meaning "after warmup, then once per update"
         self.checkpoint_per_n_tokens = int(checkpoint_per_n_tokens) if checkpoint_per_n_tokens is not None and checkpoint_per_n_tokens >= 0 else None
         self.checkpoint_warmup_tokens = int(checkpoint_warmup_tokens or 0)

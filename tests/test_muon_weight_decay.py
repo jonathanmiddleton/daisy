@@ -53,9 +53,9 @@ grad_acc_steps: 1
 val_shards:
   - type: "fineweb"
     path: "data/fineweb/fineweb_val_*.bin"
+    target_tokens: 10485760
+    sequence_length: 262144
 val_loss_every_tokens: 65536
-val_seq_len: 262144
-tot_val_tokens: 10485760
 # Snapshots
 snapshot_warmup_tokens: 0
 snapshot_per_n_tokens: 0
@@ -125,9 +125,9 @@ grad_acc_steps: 1
 val_shards:
   - type: "fineweb"
     path: "data/fineweb/fineweb_val_*.bin"
+    target_tokens: 10485760
+    sequence_length: 262144
 val_loss_every_tokens: 65536
-val_seq_len: 262144
-tot_val_tokens: 10485760
 # Snapshots
 snapshot_warmup_tokens: 0
 snapshot_per_n_tokens: 0

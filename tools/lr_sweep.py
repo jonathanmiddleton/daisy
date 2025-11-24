@@ -397,7 +397,7 @@ if __name__ == "__main__":
         num_layers=params.num_layers,
         num_heads=params.num_heads,
         model_dim=params.model_dim,
-        max_seq_len=int(getattr(params, 'max_seq_len', max(params.training_sequence_length, params.val_seq_len))),
+        max_seq_len=int(getattr(params, 'max_seq_len', params.training_sequence_length)),
         head_dim=params.head_dim,
         window_block_size=params.window_block_size,
         eos_token_id=params.eos_token_id,

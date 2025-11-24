@@ -40,9 +40,9 @@ grad_acc_steps: 1
 val_shards:
   - type: "fineweb-edu"
     path: "data/fineweb-edu/edu_fineweb_val_*.bin"
-val_loss_every_tokens:     3276800
-val_seq_len: 16384          # 4 * 64 * 1024
-tot_val_tokens: 163840
+    target_tokens: 163840
+    sequence_length: 16384          # 4 * 64 * 1024
+val_loss_every_tokens:     3_276_800
 # Checkpoints
 checkpoint_warmup_tokens:   3276800         # token warmup before checkpoints
 checkpoint_per_n_tokens:     1         # checkpoint interval by tokens

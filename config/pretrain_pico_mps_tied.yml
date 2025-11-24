@@ -38,9 +38,9 @@ grad_acc_steps: 16
 val_shards:
   - type: "fineweb-edu"
     path: "data/overfit/edu_fineweb_overfit_1M.bin"
+    target_tokens: 1
+    sequence_length: 1
 val_loss_every_tokens: 999_999_999_999
-val_seq_len: 1
-tot_val_tokens: 1
 # Checkpoints
 save_checkpoint: false
 checkpoint_warmup_tokens:     1

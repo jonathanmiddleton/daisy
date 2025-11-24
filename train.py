@@ -252,8 +252,16 @@ if args.init_checkpoint:
     model, hparams = model_from_checkpoint(args.init_checkpoint, device=device)
     logger.info("Rehydrated model from checkpoint.")
 else:
-    max_len = max(args.max_seq_len, args.max_seq_len, args.val_seq_len)
-    setattr(args, "max_seq_len", max_len)  # init rotary buffers with the maximum sequence length passed to the model
+    # Initialize rotary buffers with the maximum sequence length that the model might see
+    _msl = int(getattr(args, "max_seq_len", args.training_sequence_length))
+    _val_lens = []
+    try:
+        _val_lens = [int(v.get("sequence_length")) for v in (getattr(args, "val_shards", []) or [])]
+    except Exception:
+        _val_lens = []
+    _max_val_len = max(_val_lens) if _val_lens else int(args.training_sequence_length)
+    max_len = max(_msl, int(args.training_sequence_length), _max_val_len)
+    setattr(args, "max_seq_len", max_len)
     model = model_from_spec(args.model_spec, device=device.type, overrides=asdict(args))
     hparams = _build_hparams_from_args(args)
 
@@ -371,15 +379,16 @@ else:
     raise ValueError(f"Unknown train_mode: {train_mode}")
 
 
-#  Common Eval Setup (pretraining-style token streams)
-if len(args.val_shards) != 0:
-    val_batch_size = world_size * args.val_seq_len
-    # Build evaluators; allow optional per-shard target_tokens, else fall back to global tot_val_tokens
-    for _v in args.val_shards:
+#  Common Eval Setup
+_val_cfgs = getattr(args, "val_shards", []) or []
+if len(_val_cfgs) != 0:
+    for _v in _val_cfgs:
         _label = _v.get("type")
         _path = _v.get("path")
-        _tokens = int(_v.get("target_tokens", 0))
-        if _tokens > 0 and _tokens % val_batch_size != 0:
+        _seq_len = int(_v.get("sequence_length"))
+        _tokens = int(_v.get("target_tokens"))
+        val_batch_size = world_size * _seq_len
+        if _tokens % val_batch_size != 0:
             raise ValueError(
                 f"val shard '{_label}': target_tokens ({_tokens}) must be divisible by val_batch_size ({val_batch_size})"
             )
@@ -395,7 +404,7 @@ if len(args.val_shards) != 0:
             distributed_enabled=use_distributed,
             rank=rank,
             training_sequence_length=args.training_sequence_length,
-            val_type='task'
+            val_type='pretraining'
         )
         _val_evals.append((_label, _eval, _tokens))
 
@@ -403,7 +412,7 @@ _ga_steps_cfg = max(1, int(args.grad_acc_steps))
 if tokens_per_step is not None:
     _tokens_per_optim_step = tokens_per_step * _ga_steps_cfg
 else:
-    # TODO: for Task SFT we temporarily use an upper bound based on max sequence length for checkpoint metadata, should be better estimated but probably inconsiquential
+    # TODO: for Task SFT we temporarily use an upper bound based on max sequence length for checkpoint metadata, should be better estimated but probably inconsequential
     _tokens_per_optim_step = int(args.training_sequence_length) * _ga_steps_cfg
 
 _eval_every_tokens = None
@@ -419,7 +428,6 @@ progress = ProgressMeter(
 
 # Tracking for eval stats and ETA
 last_val_loss = None
-last_tot_val_tokens = 0
 ema_dloss_per_token = math.inf
 training_time_ms = 0
 best_val = float("inf") if best_val_from_ckpt is None else best_val_from_ckpt
@@ -440,16 +448,14 @@ while progress.tokens_processed < progress.target_tokens:
         model.eval()
 
         per_ds_results: list[tuple[str, dict]] = []
-        for _label, _ev, _tot_tokens in _val_evals:
-            _tot = int(_tot_tokens)
+        for _label, _ev, _target_tokens in _val_evals:
             _ev.reset_generator()
-            _out = _ev.eval(model=model, total_tokens=_tot)
-            _world_batch = _ev.world_batch_tokens or 0
-            _steps = _tot // _world_batch if _world_batch > 0 else 0
             logger.info(
-                f"[eval] dataset={_label} approx_steps={_steps} "
-                f"(global_batch_tokens={_world_batch}, tot_tokens={_tot})"
+                f"[eval] start dataset={_label} target_tokens={_target_tokens})"
             )
+            _world_batch = _ev.world_batch_tokens or 0
+            _steps = _target_tokens // _world_batch if _world_batch > 0 else 0
+            _out = _ev.eval(model=model, total_tokens=_target_tokens)
             per_ds_results.append((_label, _out))
 
         # Canonical/primary val metrics use the first dataset
