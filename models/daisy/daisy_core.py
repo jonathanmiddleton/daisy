@@ -138,7 +138,7 @@ class DaisyCore(nn.Module):
     def __init__(self, vocab_size: int, num_layers: int, num_heads: int, model_dim: int, max_seq_len: int,
                  head_dim: int, window_size: int = 1024, eos_token_id: int | None = None, desc: dict | None = None,
                  value_embeddings: bool = True, tied_embeddings: bool = False, attn_all_layers: bool = False,
-                 attn_impl: str = 'standard'):
+                 attn_impl: str = 'standard', dynamic_shapes: bool = False):
         super().__init__()
         if eos_token_id is None:
             raise ValueError("eos_token_id is required.")
@@ -163,6 +163,7 @@ class DaisyCore(nn.Module):
             return {i: j for i, j in m.items() if 0 <= j < i < L}
 
         self.attn_impl_ids = DaisyCore.AttnImplIDs
+        self.dynamic_shapes = dynamic_shapes
 
         self.skip_map = _get_skip_map(num_layers)
         self.eos_token_id = int(eos_token_id)
@@ -176,7 +177,7 @@ class DaisyCore(nn.Module):
 
         self.attn_impl_id = self.attn_impl_ids.get_attn_impl_id(attn_impl)
         self.blocks = nn.ModuleList(
-            [Block(model_dim, num_heads, max_seq_len, i, head_dim, i in self.attn_layers, attn_impl) for i in range(num_layers)])
+            [Block(model_dim, num_heads, max_seq_len, i, head_dim, i in self.attn_layers, attn_impl, dynamic_shapes=dynamic_shapes) for i in range(num_layers)])
         if tied_embeddings:
             nn.init.normal_(self.embed.weight, mean=0.0, std=0.02)
             self.lm_head_w = self.embed.weight
@@ -269,7 +270,7 @@ class DaisyCore(nn.Module):
 
         skip_connections = []
 
-        if input_seq.device.type == "cuda": # we assume CUDA implies FlexAttention
+        if input_seq.device.type == "cuda" and not self.dynamic_shapes: #  FlexAttention if supported unless dynamic_shape support is required
             block_masks = self.create_blockmasks(input_seq, sliding_window_num_blocks, L=L)
             attn_mask = None
         else:
@@ -327,7 +328,7 @@ class DaisyCore(nn.Module):
         logits = F.linear(x.flatten(end_dim=1).bfloat16(), self.lm_head_w.bfloat16()).float()
         return logits, k_new_list, v_new_list
 
-    def prefill(self, input_seq: Tensor, window: Optional[int] = None, debug: bool = False): #TODO CUDA/Flex for prefill -> merge prefill/forward
+    def prefill(self, input_seq: Tensor, window: Optional[int] = None, debug: bool = False): #TODO   merge prefill/forward
         assert input_seq.ndim == 2
         B, T = input_seq.shape
         h = None

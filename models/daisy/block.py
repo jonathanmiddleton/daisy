@@ -31,7 +31,7 @@ from torch import Tensor, zeros_like
 #         return  zeros_like(x), None, None
 
 class Block(nn.Module):
-    def __init__(self, dim: int, num_heads: int, max_seq_len: int, layer_idx: int, head_dim: int, has_attn: bool, attn_impl: str = 'standard'):
+    def __init__(self, dim: int, num_heads: int, max_seq_len: int, layer_idx: int, head_dim: int, has_attn: bool, attn_impl: str = 'standard', dynamic_shapes: bool = False):
         super().__init__()
 
         self.attn: AttentionProtocol | None = None
@@ -41,7 +41,7 @@ class Block(nn.Module):
                 if layer_idx % 4 == 0: self.attn = KimiLinearSelfAttention(dim, num_heads, max_seq_len, head_dim)
                 else: self.attn = CausalSelfAttention(dim, num_heads, max_seq_len, head_dim)
             elif attn_impl == 'standard':
-                self.attn = CausalSelfAttention(dim, num_heads, max_seq_len, head_dim)
+                self.attn = CausalSelfAttention(dim, num_heads, max_seq_len, head_dim, dynamic_shapes)
             else:
                 raise ValueError(f'Unknown attn_impl: {attn_impl}')
         self.mlp = MLP(dim)

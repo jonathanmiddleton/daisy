@@ -72,7 +72,7 @@ class Rotary(nn.Module):
 
 
 class CausalSelfAttention(nn.Module):
-    def __init__(self, dim: int, num_heads: int, max_seq_len: int, head_dim): #TODO automatically extend Rotary cache to avoid need for max_seq_len param
+    def __init__(self, dim: int, num_heads: int, max_seq_len: int, head_dim, dynamic_shapes: bool = False): #TODO automatically extend Rotary cache to avoid need for max_seq_len param
         super().__init__()
         torch._assert(dim % num_heads == 0, "dim must be divisible by num_heads")
         self.num_heads = num_heads
@@ -90,7 +90,7 @@ class CausalSelfAttention(nn.Module):
         self.last_q = None
         self.last_k = None
 
-        if is_flex_available():
+        if is_flex_available() and not dynamic_shapes: # dynamic shapes fail because of implied constraints within BlockMask
             self.forward = self.forward_flex
         else:
             self.forward = self.forward_sdpa
