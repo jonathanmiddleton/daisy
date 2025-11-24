@@ -551,7 +551,7 @@ while progress.tokens_processed < progress.target_tokens:
                 skipped = True
                 continue
 
-            in_idx = 1 if inputs.ndim == 2 else 0
+            # in_idx = 1 if inputs.ndim == 2 else 0
             # torch._dynamo.mark_dynamic(inputs, in_idx, min=1, max=args.training_sequence_length)
             tokens_this_step += int(seq_len)
 
