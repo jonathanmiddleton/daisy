@@ -11,7 +11,7 @@ task_val_shards:
   - type: "instruct-tasks"
     path: "data/instruct_tasks"
     split: "val"
-    target_tokens: 40000
+    target_tokens: 80000
 val_shards:
   - type: "fineweb-edu"
     path: "data/fineweb-edu/edu_fineweb_val_*.bin"
@@ -19,8 +19,8 @@ val_shards:
     sequence_length: 32768
 
 # Run length: PER-RANK token budget
-target_tokens: 1_000_000
-val_loss_every_tokens: 34000
+target_tokens: 10_000_000
+val_loss_every_tokens: 500_000
 
 # Hard max example length
 train_attention_window_len: 65536
@@ -57,8 +57,8 @@ full_windows: true
 # Gradient accumulation
 grad_acc_steps: 1
 # Checkpoints
-checkpoint_warmup_tokens:   250_000     # token warmup before checkpoints
-checkpoint_per_n_tokens:     33999         # checkpoint interval by tokens
+checkpoint_warmup_tokens:   500_000     # token warmup before checkpoints
+checkpoint_per_n_tokens:  1_000_000         # checkpoint interval by tokens
 save_checkpoint: true
 # Model Definition
 model_spec: daisy_650m

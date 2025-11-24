@@ -216,9 +216,6 @@ class Evaluator:
             with torch.no_grad():
                 with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
                     n_blocks = torch.tensor(1, dtype=torch.int32, device=device)
-                    # if self._mark_dynamic_dim >= 0:
-                    #     torch._dynamo.mark_dynamic(x, self._mark_dynamic_dim, min=self._mark_dynamic_min, max=self._mark_dynamic_max)
-                    # model's chunking optimization for linear/cross_entropy will fail for Tasks due to masking, producing NaN
                     loss = model(x, n_blocks, y) if self._val_type == 'pretraining' else model(x, n_blocks, y, loss_chunks=1)
 
             # Optional per-sample debug logging

@@ -551,21 +551,13 @@ while progress.tokens_processed < progress.target_tokens:
                 skipped = True
                 continue
 
-            # in_idx = 1 if inputs.ndim == 2 else 0
-            # torch._dynamo.mark_dynamic(inputs, in_idx, min=1, max=args.training_sequence_length)
             tokens_this_step += int(seq_len)
-
-        n_blocks = get_num_window_blocks(
-            progress.s,
-            attention_window_len=args.train_attention_window_len,
-            window_block_size=WINDOW_BLOCK_SIZE,
-        ).to(device.type)
 
         logger.debug(
             f"Pre-autocast: inputs.shape={inputs.shape} inputs.device.type={inputs.device.type} "
-            f"targets.shape={targets.shape} targets.device.type={targets.device.type} n_blocks={n_blocks}"
+            f"targets.shape={targets.shape} targets.device.type={targets.device.type}"
         )
-
+        n_blocks = torch.tensor(1, dtype=torch.int32, device=device) # should be full attention width = 1 block
         # with dynamo_force_static_param_shapes(True, enabled=(not is_task)):
         with torch.autocast(device.type, dtype=torch.bfloat16):
             loss = model(inputs, n_blocks, targets)
