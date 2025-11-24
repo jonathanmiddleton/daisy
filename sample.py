@@ -26,9 +26,9 @@ logger = logging.getLogger(__name__)
 # Command line interface
 parser = argparse.ArgumentParser(description="Generate text with a GPT model from a checkpoint.")
 parser.add_argument("checkpoint", type=str, help="Path to model checkpoint (.pt)")
-parser.add_argument("--max_tokens", type=int, default=256, help="Number of new tokens to generate")
-parser.add_argument("-rp", "--repetition_penalty", type=float, default=1.25, help="Repetition penalty")
-parser.add_argument("-t", "--temperature", type=float, default=0.7, help="Sampling temperature")
+parser.add_argument("--max_tokens", type=int, default=128, help="Number of new tokens to generate")
+parser.add_argument("-rp", "--repetition_penalty", type=float, default=1.3, help="Repetition penalty")
+parser.add_argument("-t", "--temperature", type=float, default=0.4, help="Sampling temperature (default: 0.0 if base, 0.4 otherwise)")
 parser.add_argument("--top_k", type=int, default=100, help="Top-k sampling")
 parser.add_argument("--top_p", type=float, default=0.95, help="Top-p sampling")
 parser.add_argument("-s", "--seed", type=int, default=1337, help="Random seed for deterministic sampling")
@@ -61,6 +61,7 @@ encode = lambda s: enc.encode(s, allowed_special={"<|endoftext|>"})
 decode = lambda l: enc.decode(l)
 
 use_instruct = not cli.base
+effective_temperature = cli.temperature if use_instruct else 0.0
 
 # for the instruction tuned checkpoint the prompt should follow this format
 '''
@@ -76,7 +77,7 @@ gen = Generator(
     window=int(hparams['train_attention_window_len']),
     seed=cli.seed,
     eos_token_id=hparams['eos_token_id'],
-    temperature=cli.temperature,
+    temperature=effective_temperature,
     top_k=cli.top_k,
     top_p=cli.top_p,
     repetition_penalty=cli.repetition_penalty,

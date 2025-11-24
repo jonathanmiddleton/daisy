@@ -181,6 +181,7 @@ def _get_ckpt_filename(
     *,
     val_value: Optional[float],
     step: int,
+    tokens: int,
     run_start_minute: str,
     run_id: int,
     suffix: Optional[str] = None,
@@ -188,7 +189,7 @@ def _get_ckpt_filename(
     os.makedirs("checkpoints", exist_ok=True)
     _val_trunc = math.trunc(val_value * 100) / 100 if val_value is not None else float("nan")
     return (
-        f"checkpoints/{run_start_minute}-val{_val_trunc:.3f}-step{step:06d}-run{run_id}"
+        f"checkpoints/{run_start_minute}-val{_val_trunc:.3f}-step{step:06d}-tokens{tokens}-run{run_id}"
         + (f"-{suffix}" if suffix else "")
         + ".pt"
     )
@@ -204,6 +205,7 @@ def _save_checkpoint(
     best_val: float,
     args: Hyperparameters,
     tokens_per_step: int,
+    tokens: int,
     progress,
     overwrite: bool = False,
     suffix: Optional[str] = None,
@@ -215,6 +217,7 @@ def _save_checkpoint(
     fname = _get_ckpt_filename(
         val_value=val_value,
         step=step,
+        tokens=tokens,
         run_start_minute=run_start_minute,
         run_id=run_id,
         suffix=suffix,
@@ -285,11 +288,18 @@ for param in model.parameters():
 if not args.optimizers:
     raise ValueError("Training config must provide 'optimizers' list")
 
+frozen_groups = [
+    p_cfg["group"]
+    for opt_cfg in args.optimizers
+    for p_cfg in (opt_cfg.get("params") or [])
+    if p_cfg.get("frozen")
+]
 optimizers: list[torch.optim.Optimizer] = build_optimizers_from_cfg(
     cfg_list=args.optimizers,
     model=model,
     rank=rank,
     world_size=world_size,
+    frozen_groups=frozen_groups
 )
 
 
@@ -343,6 +353,7 @@ elif train_mode == "task":
         drop_remainder=False,
         infinite=True,
         squeeze_singleton_batch=True,
+        pad_to_multiple=(WINDOW_BLOCK_SIZE if device.type == "cuda" else 1)
     )
     _task_val_shards = getattr(args, "task_val_shards", []) or []
     for _v in _task_val_shards:
@@ -498,6 +509,7 @@ while progress.tokens_processed < progress.target_tokens:
                     best_val=best_val,
                     args=args,
                     tokens_per_step=_tokens_per_optim_step,
+                    tokens=progress.tokens_processed,
                     progress=progress,
                     overwrite=False,
                     suffix="best",
@@ -646,6 +658,7 @@ if is_master and args.save_checkpoint:
         best_val=best_val,
         args=args,
         tokens_per_step=_tokens_per_optim_step,
+        tokens=progress.tokens_processed,
         progress=progress,
         overwrite=False,
         suffix="final",

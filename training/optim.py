@@ -5,6 +5,9 @@ import torch.distributed as dist
 from typing import Any
 from torch import nn
 import math
+from tools.master_logger import MasterLogger
+
+logger = MasterLogger
 
 # from tools.compile_helpers import dynamo_force_static_param_shapes
 
@@ -537,6 +540,7 @@ def build_optimizers_from_cfg(
                     f"Known groups: {sorted(param_groups_by_name.keys())}"
                 )
             if frozen_groups and pg.get("group") in frozen_groups:
+                logger.info(f"Freezing group '{name}' for optimizer '{opt_type}'")
                 continue
             referenced_group_names.add(name)
             group_opts = {k: v for k, v in pg.items() if k != "group"}
@@ -554,7 +558,7 @@ def build_optimizers_from_cfg(
             # Enforce explicit weight_decay in config for Muon (breaking change)
             if "weight_decay" not in opt_kwargs:
                 raise ValueError(
-                    "Muon optimizer now requires 'weight_decay' to be set explicitly in the training config")
+                    "Muon optimizer requires 'weight_decay' to be set explicitly in the training config")
             opt_kwargs.setdefault("rank", rank)
             opt_kwargs.setdefault("world_size", world_size)
 

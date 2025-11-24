@@ -20,9 +20,13 @@ class _Shard:
         s, e = int(self.offsets[i]), int(self.offsets[i+1])
         return self.tokens[s:e], self.labels[s:e]
 
-def _pad(batch, pad_id: int, length: int = 4):
+def next_multiple_of_n(v: int, *, n: int):
+    return next(x for x in range(n, v + 1 + n, n) if x >= v)
+
+# TODO super slow - rework like data_gen_stream with pinning
+def _pad(batch, pad_id: int, length: int = 1):
     L = [len(x[0]) for x in batch]
-    T = max(L)
+    T = next_multiple_of_n(max(L), n=length)
     B = len(batch)
     x = torch.full((B, T), pad_id, dtype=torch.long)
     y = torch.full((B, T), -100, dtype=torch.long)
@@ -38,7 +42,19 @@ def _stable_int_from_name(name: str) -> int:
     return int.from_bytes(h[:8], "big")
 
 class TaskDataGenerator:
-    def __init__(self, root: str, split: str, batch_size: int, world_size: int = 1, rank: int = 0, seed: int = 1337, device: str = "cpu", start_shard: int | None = None, drop_remainder: bool = False, infinite: bool = True, squeeze_singleton_batch: bool = True):
+    def __init__(self, root: str,
+                 split: str,
+                 batch_size: int,
+                 world_size: int = 1,
+                 rank: int = 0,
+                 seed: int = 1337,
+                 device: str = "cpu",
+                 start_shard: int | None = None,
+                 drop_remainder: bool = False,
+                 infinite: bool = True,
+                 squeeze_singleton_batch: bool = True,
+                 pad_to_multiple: int = 1
+        ):
         p = Path(root) / split
         self.files = sorted([d for d in p.iterdir() if d.is_dir() and (d / "meta.json").exists()])
         if not self.files: raise FileNotFoundError(f"no shards in {p}")
@@ -61,6 +77,7 @@ class TaskDataGenerator:
         self._order = None
         self._pos = 0
         self._pad_id = None
+        self._pad_to_multiple = pad_to_multiple
 
     def _load_next(self):
         d = next(self._file_iter)
@@ -84,6 +101,7 @@ class TaskDataGenerator:
 
     def __iter__(self): return self
 
+#TODO read shards like data_gen_stream with pinned mem on CUDA
     def __next__(self):
         if self._shard is None: self._load_next()
         b = []
@@ -99,7 +117,7 @@ class TaskDataGenerator:
             b.append(self._shard.get(idx))
             need -= 1
         if len(b) < self.local_bsz and self.drop_remainder: raise StopIteration
-        x, y = _pad(b, self._pad_id)
+        x, y = _pad(b, self._pad_id, self._pad_to_multiple)
         non_blocking = self.device.type == "cuda" and torch.cuda.is_available()
         x = x.to(self.device, non_blocking=non_blocking)
         y = y.to(self.device, non_blocking=non_blocking)

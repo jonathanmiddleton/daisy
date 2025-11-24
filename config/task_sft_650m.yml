@@ -1,7 +1,7 @@
 # Logging
 wandb_log: true
 wandb_project: 'daisy-650m'
-wandb_run_name: '650m-task-test'
+wandb_run_name: '650m-task-frozen-adamw'
 # SFT
 train_mode: "task"
 task_train_root: "data/instruct_tasks"
@@ -42,11 +42,11 @@ optimizers:
     fused: true
     params:
       - group: head_params
-        lr: 6.928e-5
+        frozen: true
       - group: embed_params
-        lr: 3.464e-5
+        frozen: true
       - group: scalar_params
-        lr: 2.598e-4
+        frozen: true
   - type: Muon
     momentum: .95
     weight_decay: 0.0
