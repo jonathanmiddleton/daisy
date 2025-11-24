@@ -145,7 +145,7 @@ class CausalSelfAttention(nn.Module):
         y, _, _, _ = self._sdpa_common(x, ve, sa_lambdas, attn_mask=attn_mask)
         return y
 
-    def forward_flex(self, x: torch.Tensor, ve: torch.Tensor, sa_lambdas: torch.Tensor, block_mask: BlockMask):
+    def forward_flex(self, x: torch.Tensor, ve: torch.Tensor, sa_lambdas: torch.Tensor, block_mask: BlockMask, attn_mask: Tensor):
         B, T = x.size(0), x.size(1)
         q_, k_, v_ = self._qkv_common(x, ve, sa_lambdas)
         y = _flex_call(q_, k_, v_, block_mask=block_mask, scale=self.attn_scale)
