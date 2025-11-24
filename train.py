@@ -54,7 +54,7 @@ if not TORCH_DISABLE_MODEL_COMPILE:
     # Configure inductor/dynamo compile/tuning
     torch._inductor.config.coordinate_descent_tuning = bool(getattr(args, "torch_coordinate_descent_tuning", False))
     torch._dynamo.config.compiled_autograd = True
-    torch._dynamo.config.error_on_nested_fx_trace = False  # temp workaround/diagnostic for dynamo error related to FlexAttention
+    torch._dynamo.config.error_on_nested_fx_trace = False  # workaround/diagnostic for dynamo error related to FlexAttention
 # torchrun sets these env variables
 rank = int(os.environ.get("RANK", "0"))
 world_size = int(os.environ.get("WORLD_SIZE", "1"))
@@ -314,7 +314,7 @@ for opt in optimizers:
 
 report = build_report(model)
 logger.info(f"Model report:\n{format_report_text(report)}")
-model = maybe_compile(model, dynamic=False)
+model = maybe_compile(model, dynamic=is_task) # need dynamic compile for varible task shapes
 
 
 ########################################
