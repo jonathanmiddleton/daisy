@@ -136,7 +136,7 @@ class DaisyCore(nn.Module):
                 raise ValueError(f"Unknown attn_impl: {attn_impl}")
 
     def __init__(self, vocab_size: int, num_layers: int, num_heads: int, model_dim: int, max_seq_len: int,
-                 head_dim: int, window_size: int = 1024, eos_token_id: int | None = None, desc: dict | None = None,
+                 head_dim: int, window_size: int = 2048, eos_token_id: int | None = None, desc: dict | None = None,
                  value_embeddings: bool = True, tied_embeddings: bool = False, attn_all_layers: bool = False,
                  attn_impl: str = 'standard', dynamic_shapes: bool = False):
         super().__init__()
