@@ -28,7 +28,7 @@ def _pad(batch, pad_id: int, length: int = 1):
     L = [len(x[0]) for x in batch]
     T = next_multiple_of_n(max(L), n=length)
     B = len(batch)
-    x = torch.full((B, T), pad_id, dtype=torch.long)
+    x = torch.full((B, T), pad_id, dtype=torch.int32)
     y = torch.full((B, T), -100, dtype=torch.long)
     for i, (inp, lab) in enumerate(batch):
         t = len(inp)
