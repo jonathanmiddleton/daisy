@@ -382,7 +382,10 @@ elif train_mode == "task":
             rank=rank,
             training_sequence_length=args.training_sequence_length,
             val_type='task',
-            log_samples=getattr(args, "task_val_debug_log_samples", False)
+            log_samples=getattr(args, "task_val_debug_log_samples", False),
+            mark_dynamic_dim = 0,
+            mark_dynamic_min = 1,
+            mark_dynamic_max = int(args.training_sequence_length)
         )
         _val_evals.append((_label, _eval, _tokens))
 

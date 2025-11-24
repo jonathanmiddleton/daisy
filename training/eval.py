@@ -40,16 +40,23 @@ class Evaluator:
         distributed_enabled: bool,
         rank: int,
         training_sequence_length: int,
+        mark_dynamic_dim: int = -1,
+        mark_dynamic_min: int = -1,
+        mark_dynamic_max: int = -1,
         val_type: str = "pretrain", # "pretrain" or "task"
         log_samples: bool = False,
         sample_log_path: Optional[str] = None,
-        tokenizer_name: str = "gpt2"
+        tokenizer_name: str = "gpt2",
     ):
         self._ddg = data_generator
         self._distributed_enabled = bool(distributed_enabled)
         self._rank = int(rank or 0)
         self._training_sequence_length = int(training_sequence_length)
         self._val_type = val_type
+
+        self._mark_dynamic_dim = mark_dynamic_dim
+        self._mark_dynamic_min = mark_dynamic_min
+        self._mark_dynamic_max = mark_dynamic_max
 
         # Approximate global tokens processed per eval step
         self._world_batch_tokens: Optional[int] = None
@@ -214,6 +221,8 @@ class Evaluator:
 
             with torch.no_grad():
                 with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
+                    if self._mark_dynamic_dim >= 0:
+                        torch._dynamo.mark_dynamic(x, self._mark_dynamic_dim, min=self._mark_dynamic_min, max=self._mark_dynamic_max)
                     # model's chunking optimization for linear/cross_entropy will fail for Tasks due to masking, producing NaN
                     loss = model(x, n_blocks, y) if self._val_type == 'pretraining' else model(x, n_blocks, y, loss_chunks=1)
 
