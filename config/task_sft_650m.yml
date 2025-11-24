@@ -16,7 +16,7 @@ val_shards:
   - type: "fineweb-edu"
     path: "data/fineweb-edu/edu_fineweb_val_*.bin"
     target_tokens: 10_485_760
-    sequence_length: 262_144
+    sequence_length: 131_072
 
 # Run length: PER-RANK token budget
 target_tokens: 1_000_000
