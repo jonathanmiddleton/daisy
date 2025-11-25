@@ -7,7 +7,7 @@ torch.coordinate_descent_tuning: true
 # Pretraining configuration
 train_shards: "data/dclm_baseline_gpt2_token_shards/dclm_baseline_train_*.bin"
 target_tokens: 7_000_000_000
-cooldown_frac: 0.2
+cooldown_frac: 1
 learning_rate_schedule: linear_decay
 learning_rate_floor: 0.01
 training_sequence_length: 40960        #  N * 1024; must be divisible by window_block_size
