@@ -1,20 +1,20 @@
 # Logging
 wandb_log: true
 wandb_project: 'daisy-650m'
-wandb_run_name: '650m-task-frzn-embd-sclr'
+wandb_run_name: '650m-dclm-task'
 # SFT
 train_mode: "task"
-task_train_root: "data/instruct_tasks"
+task_train_root: "data/instruct_tasks/"
 task_train_split: "train_stage_00"
 task_val_debug_log_samples: false # debug log, all ranks
 task_val_shards:
   - type: "instruct-tasks"
     path: "data/instruct_tasks/"
-    split: "val"
+    split: "val_stage_00"
     target_tokens: 80000
 val_shards:
   - type: "dclm_baseline"
-    path: "data/dclm_baseline_gpt2_token_shards/dclm_baseline_val_*.bin"
+    path: "data/dclm_baseline/dclm_baseline_val_000000.bin"
     target_tokens: 1_474_560
     sequence_length: 32768
 
