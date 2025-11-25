@@ -10,8 +10,8 @@ target_tokens: 18_000_000_000
 cooldown_frac: 1
 learning_rate_schedule: cosine_decay
 learning_rate_floor: 0.1
-training_sequence_length: 32768        #  N * 1024; must be divisible by window_block_size
-train_attention_window_len: 32768        # largest sliding attention window used during training; must be divisible by window_block_size
+training_sequence_length: 32768
+train_attention_window_len: 32768
 # Optimizers configuration
 optimizers:
   - type: AdamW
@@ -20,12 +20,12 @@ optimizers:
     weight_decay: 0.0
     fused: true
     params:
-      - group: head_params         # "hidden" baseline for Adam
-        lr: 0.003464               # unchanged
-      - group: embed_params        # LVP √d-rule
+      - group: head_params
+        lr: 0.003464
+      - group: embed_params        # LVP sqrt(d)-rule
         lr: 0.110848               # instead of 0.1732
       - group: scalar_params
-        lr: 0.01299                # can stay as-is (LVP is silent)
+        lr: 0.01299
   - type: Muon
     momentum: 0.95
     weight_decay: 0.0
@@ -33,18 +33,17 @@ optimizers:
       - group: hidden_matrix_params
         lr: 0.02
 full_windows: true
-# Gradient accumulation
 grad_acc_steps: 1 # assumes world_size=8
 # Evaluations
 val_shards:
   - type: "dclm_baseline"
     path: "data/dclm_baseline/dclm_baseline_val_*.bin"
-    target_tokens: 10_485_760  # 5 steps
-    sequence_length: 131_072       # 4 * 64 * 1024
-val_loss_every_tokens:    524_288_000 #  = 500 steps
+    target_tokens: 10_485_760
+    sequence_length: 131_072
+val_loss_every_tokens:    524_288_000
 # Checkpoints
-checkpoint_warmup_tokens:   12_000_0000_000     # token warmup before checkpoints
-checkpoint_per_n_tokens:     1         # checkpoint interval by tokens
+checkpoint_warmup_tokens:   12_000_0000_000
+checkpoint_per_n_tokens:     1
 save_checkpoint: true
 # Model Definition
 model_spec: daisy_650m
