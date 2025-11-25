@@ -1,5 +1,5 @@
 # test config, attempts overfit
-wandb_log: false
+wandb_log: true
 wandb_project: 'daisy-pico-overfit'
 wandb_run_name: 'pico-overfit-dclm-baseline-mps'
 # Torch config
