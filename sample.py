@@ -32,7 +32,7 @@ parser.add_argument("-t", "--temperature", type=float, default=0.4, help="Sampli
 parser.add_argument("--top_k", type=int, default=100, help="Top-k sampling")
 parser.add_argument("--top_p", type=float, default=0.95, help="Top-p sampling")
 parser.add_argument("-s", "--seed", type=int, default=1337, help="Random seed for deterministic sampling")
-parser.add_argument("--base", type=bool, default=False, help="Flag for base sampling")
+parser.add_argument("--base", action="store_true", help="Flag for base sampling")
 parser.add_argument("-p", "--prompt", type=str, default="Write a short story about a child playing with a ball.", help="Optional one-shot prompt")
 parser.add_argument(
     "-d",
