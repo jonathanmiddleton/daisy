@@ -40,8 +40,8 @@ grad_acc_steps: 1
 val_shards:
   - type: "dclm-baseline-overfit"
     path: "data/overfit/dclm_baseline_overfit_1M.bin"
-    target_tokens: 64
-    sequence_length: 8
+    target_tokens: 1024
+    sequence_length: 128
 val_loss_every_tokens: 999_999_999_999
 # Checkpoints
 save_checkpoint: true
