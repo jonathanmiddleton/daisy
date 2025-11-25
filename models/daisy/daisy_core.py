@@ -230,7 +230,7 @@ class DaisyCore(nn.Module):
         ve = [norm(value_embed(input_seq)) for value_embed in self.value_embeds]
         return ve
 
-    def forward(self, input_seq: Tensor, sliding_window_num_blocks: Tensor, target_seq: Tensor = None, loss_chunks: int = 4):
+    def forward(self, input_seq: Tensor, sliding_window_num_blocks: Tensor, target_seq: Tensor = None, loss_chunks: int = 4, output_logits: bool = False):
         torch._assert(input_seq.ndim == 1, "input_seq must be 1D")
         L = len(self.blocks)
 
@@ -264,14 +264,20 @@ class DaisyCore(nn.Module):
             loss = F.cross_entropy(15 * logits * torch.rsqrt(logits.square() + 225), target_seq)
             return loss
 
-        loss = 0
-        for i in range(loss_chunks):
-            torch._assert(input_seq.numel() % loss_chunks == 0, f"input_seq must be divisible by {loss_chunks} when not in training")
-            logits: Tensor = F.linear(x.flatten(end_dim=1).chunk(loss_chunks)[i].bfloat16(), self.lm_head_w.bfloat16()).float()
-            logits = 15 * logits * torch.rsqrt(logits.square() + 225)
-            chunk = target_seq.chunk(loss_chunks)[i]
-            loss += F.cross_entropy(logits, chunk) / loss_chunks
-        return loss
+        if output_logits:
+            logits: Tensor = F.linear(x.flatten(end_dim=1).bfloat16(), self.lm_head_w.bfloat16()).float()
+            return logits
+        else:
+            loss = 0
+            for i in range(loss_chunks):
+                torch._assert(input_seq.numel() % loss_chunks == 0,
+                              f"input_seq must be divisible by {loss_chunks} when not in training")
+                logits: Tensor = F.linear(x.flatten(end_dim=1).chunk(loss_chunks)[i].bfloat16(),
+                                          self.lm_head_w.bfloat16()).float()
+                logits = 15 * logits * torch.rsqrt(logits.square() + 225)
+                chunk = target_seq.chunk(loss_chunks)[i]
+                loss += F.cross_entropy(logits, chunk) / loss_chunks
+            return loss
 
     def step(self, token_id: Tensor, k_ctxs, v_ctxs, pos: int, window: int):
         assert token_id.ndim == 0
