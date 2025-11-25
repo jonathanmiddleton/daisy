@@ -1,0 +1,11 @@
+model_class: models.daisy.daisy_core.DaisyCore
+eos_token_id: 50256
+vocab_size: 50257
+num_layers: 24
+num_heads: 12
+head_dim: 128
+model_dim: 1536
+attention_window_len: 8192
+max_seq_len: 262144
+value_embeddings: true
+tied_embeddings: false
