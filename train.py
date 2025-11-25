@@ -92,7 +92,7 @@ def maybe_compile(model: nn.Module, dynamic: bool = False) -> nn.Module:
         use_dynamic = dynamic or is_task
         if is_task:
             torch._dynamo.config.force_parameter_static_shapes = False
-        logger.info(f"Compiling model (dynamic={use_dynamic}) (backend={backend}). This may take several minutes.")
+        logger.info(f"Compiling model (dynamic={use_dynamic}) (backend={backend}). This may take several minutes and occur during the initial evals.")
         model = torch.compile(model, dynamic=use_dynamic, backend=backend)
         return model
 
