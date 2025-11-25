@@ -74,52 +74,27 @@ def build_attn_mask(input_seq: Tensor, window_size: int, eos_token_id: int):
     return attn_mask
 
 
-
-def pick_attention_layers(total_layers, d_model=None, num_heads=None, attn_impl: str = 'standard'):
-    """
-    Sparse Attention Layer Selection
-
-    For non-degenerate cases:
-    - L: total number of layers (int >= 1)
-    - d_model: model width (optional)
-    - n_heads: number of attention heads (optional; constant across attention layers)
-    - d_head: per-head width; if d_model and n_heads are provided, d_head = d_model / n_heads; otherwise d_head = 64
-
-    1) Choose stride s (maximum gap between attention layers) from d_head:
-       s = clip(round(8 * sqrt(d_head / 64)), 4, 12)
-       Interpretation: if d_head = 64 then s ≈ 8. Wider heads allow slightly larger s,
-       but s is always clamped to [4, 12].
-
-    2) Target count K of attention layers:
-       K = min(L, max(ceil(L / s), 2 + ceil(log2(L))))
-       This ensures at least logarithmically many attention layers and bounds the
-       maximum gap between attention layers.
-
-    3) Index placement: pick K indices uniformly on [0, L-1] (inclusive), then deduplicate and sort:
-       for i in {0, 1, ..., K-1}:
-           idx_i = round(i * (L - 1) / (K - 1))
-       By construction, idx_0 = 0 and idx_{K-1} = L - 1.
-    """
-    if total_layers <= 0: return []
-    if total_layers == 1: return [0]
-    if total_layers == 2: return [0, 1]
-    if total_layers == 3: return [0, 2]
-    if total_layers == 4: return [0, 1, 3]
-    if total_layers == 5: return [0, 2, 4]
-    if total_layers == 6: return [0, 1, 3, 5]
-    if total_layers == 16: return [0, 1, 2, 4, 5, 7, 8, 10, 11, 13, 14, 15]
+def pick_attention_layers(L, d_model=None, num_heads=None, attn_impl='standard', attn_density=0.75):
+    if L <= 0: return []
+    if L == 1: return [0]
+    if L == 2: return [0, 1]
+    if L == 3: return [0, 2]
+    if L == 4: return [0, 1, 3]
+    if L == 5: return [0, 2, 4]
+    if L == 6: return [0, 1, 3, 5]
+    if L == 16: return [0, 1, 2, 4, 5, 7, 8, 10, 11, 13, 14, 15]
     d_head = (d_model // num_heads) if (d_model and num_heads) else 64
     s = max(4, min(12, round(8 * (d_head / 64) ** 0.5)))
-    K = min(total_layers, max(ceil(total_layers / s), ceil(2 + log2(total_layers))))
-    idx = [int(round(i * (total_layers - 1) / (K - 1))) for i in range(K)]
-    idx_s = set(idx)
+    k_log = ceil(2 + log2(L))
+    k_ratio = ceil(attn_density * L)
+    k_stride = ceil(L / s)
+    K = min(L, max(k_log, k_ratio, k_stride))
+    idx = [round(i * (L - 1) / (K - 1)) for i in range(K)]
+    idx_s = set(map(int, idx))
     if attn_impl == 'kimi_linear':
-        # Ensure KimiLinearSelfAttention exists for every layer number divisible by 4
-        # Block.py: if layer_idx % 4 == 0: self.attn = KimiLinearSelfAttention(...)
-        # We guarantee attention in the first and last layers so we expect Kimi in
-        # the first and SDPA/Flex in the last.
-        idx_s = idx_s | set(list(range(0, total_layers, 4)))
+        idx_s |= set(range(0, L, 4))
     return sorted(idx_s)
+
 
 class DaisyCore(nn.Module):
     class AttnImplIDs:
