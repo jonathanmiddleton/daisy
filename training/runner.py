@@ -107,7 +107,9 @@ def _stream_subprocess(cmd: List[str], log_fp) -> int:
     ) as p:
         assert p.stdout is not None
         for line in p.stdout:
-            logger.info(line.rstrip('\n\r'))
+            # Child process output is already fully formatted (timestamps, levels, etc.),
+            # so just forward it instead of wrapping it in another logger.info().
+            sys.stdout.write(line)
             # noinspection PyBroadException
             try:
                 log_fp.write(line)
