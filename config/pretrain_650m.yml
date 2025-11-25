@@ -10,8 +10,8 @@ target_tokens: 18_000_000_000
 cooldown_frac: 1
 learning_rate_schedule: cosine_decay
 learning_rate_floor: 0.1
-training_sequence_length: 2048        #  N * 1024; must be divisible by window_block_size
-train_attention_window_len: 2048        # largest sliding attention window used during training; must be divisible by window_block_size
+training_sequence_length: 32768        #  N * 1024; must be divisible by window_block_size
+train_attention_window_len: 32768        # largest sliding attention window used during training; must be divisible by window_block_size
 # Optimizers configuration
 optimizers:
   - type: AdamW
