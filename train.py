@@ -557,8 +557,10 @@ while progress.tokens_processed < progress.target_tokens:
             f"Pre-autocast: inputs.shape={inputs.shape} inputs.device.type={inputs.device.type} "
             f"targets.shape={targets.shape} targets.device.type={targets.device.type}"
         )
-        n_blocks = torch.tensor(1, dtype=torch.int32, device=device) # should be full attention width = 1 block
-        # with dynamo_force_static_param_shapes(True, enabled=(not is_task)):
+        n_blocks = get_num_window_blocks(progress.s,
+                                         attention_window_len=args.train_attention_window_len,
+                                         window_block_size=WINDOW_BLOCK_SIZE,
+                                         ).to(device.type)
         with torch.autocast(device.type, dtype=torch.bfloat16):
             loss = model(inputs, n_blocks, targets)
 
