@@ -1,7 +1,7 @@
 # test config, attempts overfit
 wandb_log: true
-wandb_project: 'daisy-linear'
-wandb_run_name: 'micro-test-AAL_false'
+wandb_project: 'daisy-micro'
+wandb_run_name: 'micro-test'
 # Torch config
 torch.coordinate_descent_tuning: true
 # Pretraining configuration
