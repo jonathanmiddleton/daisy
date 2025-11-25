@@ -5,7 +5,7 @@ wandb_run_name: 'pico_tied_overfit'
 # Torch config
 torch.coordinate_descent_tuning: false
 # Pretraining configuration
-train_shards: "data/overfit/edu_fineweb_overfit_1M.bin"
+train_shards: "data/overfit/dclm_baseline_overfit_1M.bin"
 target_tokens: 20_971_520
 cooldown_frac: 0.95
 learning_rate_schedule: linear_decay
@@ -38,8 +38,8 @@ grad_acc_steps: 16
 # Evaluations
 # NOTE: we don't care about val loss since we're overfitting on the training data
 val_shards:
-  - type: "fineweb-edu"
-    path: "data/overfit/edu_fineweb_overfit_1M.bin"
+  - type: "dclm-baseline-overfit"
+    path: "data/overfit/dclm_baseline_overfit_1M.bin"
     target_tokens: 4
     sequence_length: 4
 val_loss_every_tokens: 999_999_999_999
