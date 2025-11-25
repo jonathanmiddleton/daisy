@@ -1,7 +1,7 @@
 # Logging
 wandb_log: true
 wandb_project: 'daisy-650m'
-wandb_run_name: '650m-task-frozen-adamw'
+wandb_run_name: '650m-task-frzn-embd-sclr'
 # SFT
 train_mode: "task"
 task_train_root: "data/instruct_tasks"
@@ -13,8 +13,8 @@ task_val_shards:
     split: "val"
     target_tokens: 80000
 val_shards:
-  - type: "fineweb-edu"
-    path: "data/fineweb-edu/edu_fineweb_val_*.bin"
+  - type: "dclm_baseline"
+    path: "data/dclm_baseline_gpt2_token_shards/dclm_baseline_val_*.bin"
     target_tokens: 1_474_560
     sequence_length: 32768
 
@@ -42,7 +42,7 @@ optimizers:
     fused: true
     params:
       - group: head_params
-        frozen: true
+        lr: 0.0003464
       - group: embed_params
         frozen: true
       - group: scalar_params
