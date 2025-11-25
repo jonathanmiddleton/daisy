@@ -10,5 +10,6 @@ cd "$SCRIPT_DIR"
 
 # Ensure Python uses repository root for imports
 export PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH-}"
+export TORCH_LOGS=recompiles,graph_breaks
 
 python -m training.runner "$@"
