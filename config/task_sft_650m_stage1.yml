@@ -5,11 +5,11 @@ wandb_run_name: '650m-task-frozen-adamw'
 # SFT
 train_mode: "task"
 task_train_root: "data/instruct_tasks"
-task_train_split: "train"
+task_train_split: "train_stage_00"
 task_val_debug_log_samples: false # debug log, all ranks
 task_val_shards:
   - type: "instruct-tasks"
-    path: "data/instruct_tasks"
+    path: "data/instruct_tasks/"
     split: "val"
     target_tokens: 80000
 val_shards:
@@ -19,8 +19,8 @@ val_shards:
     sequence_length: 32768
 
 # Run length: PER-RANK token budget
-target_tokens: 10_000_000
-val_loss_every_tokens: 500_000
+target_tokens: 1_000_000
+val_loss_every_tokens: 50_000
 
 # Hard max example length
 train_attention_window_len: 65536

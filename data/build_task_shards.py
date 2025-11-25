@@ -99,7 +99,6 @@ def _iter_dolly15k(split: str, stop: int | None = None):
                 break
 
 def _iter_openhermes(split: str, stop: int | None = None):
-    # default split for OpenHermes SFT is "train_sft"
     ds = load_dataset("HuggingFaceTB/OpenHermes-2.5-H4", split=split)
     n = 0
     for r in ds:
@@ -184,16 +183,12 @@ def _iter_metamath(split: str, stop: int | None = None, max_rows: int = 30000):
             if stop and n >= stop:
                 break
 
-
 def _tok_pair(tok, instr: str, resp: str, eos_id: int):
     prompt = f"### Instruction:\n{instr}\n\n### Response:\n"
     p_ids = tok(prompt, add_special_tokens=False).input_ids
     r_ids = tok(resp, add_special_tokens=False).input_ids + [eos_id]
-    x = p_ids + r_ids  # full sequence
+    x = p_ids + r_ids
 
-    # Next-token targets aligned with logits at same positions:
-    # y[t] = x[t+1]; y[-1] = -100.
-    # Do NOT supervise on prompt content: mask positions whose next token is still inside the prompt.
     y = [-100] * len(x)
     for t in range(len(x) - 1):
         nxt = x[t + 1]
@@ -268,19 +263,18 @@ def _write_shard(out_dir: Path, shard_id: int, X: list[np.ndarray], Y: list[np.n
     }
     (d / "meta.json").write_text(json.dumps(meta))
 
-def build_task_shards(
-    out_dir: str,
+def _build_task_shards(
+    out_root: Path,
     split: str,
+    tok,
     tokenizer_name: str,
     max_examples_per_shard: int,
     sources: list[tuple[str, dict]],
-    seed: int = 1337,
+    seed: int,
 ):
     random.seed(seed)
-    out = Path(out_dir) / split
+    out = out_root / split
     out.mkdir(parents=True, exist_ok=True)
-    tok = AutoTokenizer.from_pretrained(tokenizer_name, use_fast=True, model_max_length=1_000_000)
-    assert tok.eos_token_id is not None, "Tokenizer has no EOS. Configure EOS in the tokenizer/model before building shards."
     eos = int(tok.eos_token_id)
     shard, buf_x, buf_y, n = 0, [], [], 0
     for instr, resp in _mixture(sources):
@@ -295,26 +289,63 @@ def build_task_shards(
     if n:
         _write_shard(out, shard, buf_x, buf_y, tokenizer_name, eos)
 
+def build_task_shards(
+    out_dir: str,
+    split: str,
+    tokenizer_name: str,
+    max_examples_per_shard: int,
+    sources: list[tuple[str, dict]],
+    seed: int = 1337,
+):
+    out_root = Path(out_dir)
+    out_root.mkdir(parents=True, exist_ok=True)
+    tok = AutoTokenizer.from_pretrained(tokenizer_name, use_fast=True, model_max_length=1_000_000)
+    assert tok.eos_token_id is not None, "Tokenizer has no EOS. Configure EOS in the tokenizer/model before building shards."
+    _build_task_shards(out_root, split, tok, tokenizer_name, max_examples_per_shard, sources, seed)
+
+def build_staged_task_shards(
+    out_dir: str,
+    split: str,
+    tokenizer_name: str,
+    max_examples_per_shard: int,
+    stages: list[list[tuple[str, dict]]],
+    seed: int = 1337,
+):
+    out_root = Path(out_dir)
+    out_root.mkdir(parents=True, exist_ok=True)
+    tok = AutoTokenizer.from_pretrained(tokenizer_name, use_fast=True, model_max_length=1_000_000)
+    assert tok.eos_token_id is not None, "Tokenizer has no EOS. Configure EOS in the tokenizer/model before building shards."
+    for stage_id, sources in enumerate(stages):
+        stage_split = f"{split}_stage_{stage_id:02d}"
+        stage_seed = seed + stage_id
+        _build_task_shards(out_root, stage_split, tok, tokenizer_name, max_examples_per_shard, sources, stage_seed)
+
 if __name__ == "__main__":
-    # ~140k examples: task 20k, instruct 120k
-    # 1 epoch ~56M tokens
     train_sources = [
+        ("oasst1", {"split": "train", "stop": 20_000}),
+        ("dolly15k", {"split": "train", "stop": 15_000}),
+        ("no_robots", {"split": "train", "stop": 9_500}),
+        ("openhermes", {"split": "train_sft", "stop": 20_000}),
+        ("openorca", {"split": "train", "stop": 20_000}),
+        ("codealpaca", {"split": "train", "stop": 20_000}),
+
         ("ARC-Easy", {"split": "train"}),  # ~2.3k
         ("ARC-Challenge", {"split": "train"}),  # ~1.1k
         ("GSM8K", {"subset": "main", "split": "train"}),  # ~7.5k
-        ("smol-smoltalk", {"split": "train", "stop": 10_000}),
-
-        ("oasst1", {"split": "train", "stop": 20_000}),
-        ("dolly15k", {"split": "train", "stop": 15_000}),
-        ("openhermes", {"split": "train_sft", "stop": 20_000}),
-        ("openorca", {"split": "train", "stop": 20_000}),
-        ("no_robots", {"split": "train", "stop": 9_500}),
-        ("codealpaca", {"split": "train", "stop": 20_000}),
         ("metamath", {"split": "train", "stop": 15_000, "max_rows": 30_000}),
+
+        # ("smol-smoltalk", {"split": "train", "stop": 10_000}),
     ]
+
+    stage_splits = [
+        (0, 6),
+        (6, len(train_sources))
+    ]
+    train_stages = [train_sources[i:j] for (i, j) in stage_splits]
 
     val_sources = [
         ("smol-smoltalk", {"split": "test"}),
     ]
-    build_task_shards("data/instruct_tasks", "train", "gpt2", 100_000, train_sources)
+
+    build_staged_task_shards("data/instruct_tasks", "train", "gpt2", 100_000, train_stages)
     build_task_shards("data/instruct_tasks", "val",   "gpt2", 100_000, val_sources)
