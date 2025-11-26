@@ -1,7 +1,7 @@
 # Logging
 wandb_log: true
-wandb_project: 'daisy-650m'
-wandb_run_name: '650m-pretrain'
+wandb_project: 'daisy-820m'
+wandb_run_name: '820m-pretrain'
 # Torch config
 torch.coordinate_descent_tuning: true
 # Pretraining configuration
@@ -11,7 +11,7 @@ cooldown_frac: 1
 learning_rate_schedule: cosine_decay
 learning_rate_floor: 0.1
 training_sequence_length: 65536
-train_attention_window_len: 65536
+train_attention_window_len: 8192
 # Optimizers configuration
 optimizers:
   - type: AdamW
@@ -19,13 +19,6 @@ optimizers:
     eps: 1.0e-10
     weight_decay: 0.0
     fused: true
-#    params:
-#      - group: head_params
-#        lr: 0.011183  # 0.003464
-#      - group: embed_params
-#        lr: 0.55917 # 0.1732
-#      - group: scalar_params
-#        lr: 0.041938  # 0.01299
     params:
       - group: head_params
         lr: 0.003464
@@ -38,7 +31,7 @@ optimizers:
     weight_decay: 0.0
     params:
       - group: hidden_matrix_params
-        lr: 0.02
+        lr: 0.025
 full_windows: true
 grad_acc_steps: 1 # assumes world_size=8
 # Evaluations
