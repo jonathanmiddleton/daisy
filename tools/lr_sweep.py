@@ -432,7 +432,7 @@ if __name__ == "__main__":
         "--group",
         "-g",
         required=True,
-        help="Comma-separated list of parameter group names to scale (e.g., embed_params,attn_params). Unspecified groups keep their configured LR and are not frozen.",
+        help="Comma-separated list of parameter group names to scale (e.g., embed_params,attn_params). Unspecified groups keep their configured LR.",
     )
     cli = parser.parse_args()
 
