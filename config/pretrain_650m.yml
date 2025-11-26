@@ -40,7 +40,7 @@ optimizers:
       - group: hidden_matrix_params
         lr: 0.02
 full_windows: true
-grad_acc_steps: 2 # assumes world_size=8
+grad_acc_steps: 1 # assumes world_size=8
 # Evaluations
 val_shards:
   - type: "dclm_baseline"
