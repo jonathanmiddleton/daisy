@@ -1,7 +1,7 @@
 # Logging
 wandb_log: true
 wandb_project: 'daisy-tasks'
-wandb_run_name: '280m-attn-2048'
+wandb_run_name: '420m'
 # Torch config
 torch.coordinate_descent_tuning: false
 # Pretraining configuration
@@ -11,7 +11,7 @@ cooldown_frac: 0.0
 learning_rate_schedule: linear_decay
 learning_rate_floor: 0.3
 training_sequence_length: 131_072
-train_attention_window_len: 2048
+train_attention_window_len: 4_096
 # Optimizers configuration
 optimizers:
   - type: AdamW
@@ -47,4 +47,4 @@ checkpoint_warmup_tokens:   0
 checkpoint_per_n_tokens:     0
 save_checkpoint: false
 # Model Definition
-model_spec: daisy_300m
+model_spec: daisy_420m
