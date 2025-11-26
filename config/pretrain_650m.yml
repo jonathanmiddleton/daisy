@@ -10,8 +10,8 @@ target_tokens: 18_000_000_000
 cooldown_frac: 1
 learning_rate_schedule: cosine_decay
 learning_rate_floor: 0.1
-training_sequence_length: 8192
-train_attention_window_len: 8192
+training_sequence_length: 65536
+train_attention_window_len: 65536
 # Optimizers configuration
 optimizers:
   - type: AdamW
@@ -19,20 +19,20 @@ optimizers:
     eps: 1.0e-10
     weight_decay: 0.0
     fused: true
-    params:
-      - group: head_params
-        lr: 0.011183  # 0.003464
-      - group: embed_params
-        lr: 0.55917 # 0.1732
-      - group: scalar_params
-        lr: 0.041938  # 0.01299
 #    params:
 #      - group: head_params
-#        lr: 0.003464
-#      - group: embed_params        # LVP sqrt(d)-rule
-#        lr: 0.110848               # instead of 0.1732
+#        lr: 0.011183  # 0.003464
+#      - group: embed_params
+#        lr: 0.55917 # 0.1732
 #      - group: scalar_params
-#        lr: 0.01299
+#        lr: 0.041938  # 0.01299
+    params:
+      - group: head_params
+        lr: 0.003464
+      - group: embed_params        # LVP sqrt(d)-rule
+        lr: 0.110848               # instead of 0.1732
+      - group: scalar_params
+        lr: 0.01299
   - type: Muon
     momentum: 0.95
     weight_decay: 0.0
@@ -46,7 +46,7 @@ val_shards:
   - type: "dclm_baseline"
     path: "data/dclm_baseline/dclm_baseline_val_*.bin"
     target_tokens: 10_485_760
-    sequence_length: 8192
+    sequence_length: 131_072
 val_loss_every_tokens:    524_288_000
 # Checkpoints
 checkpoint_warmup_tokens:   1_000_000_000
