@@ -250,6 +250,7 @@ class DaisyCore(nn.Module):
             attn_mask = None
         else:
             block_masks = [None] * L
+            # building an attention mask for T>sqrt(2,147,483,647)==sqrt(INT_MAX) will fail
             attn_mask = build_attn_mask(input_seq, self.window_size, self.eos_token_id)
 
         for i in range(L):

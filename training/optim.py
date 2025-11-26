@@ -442,7 +442,7 @@ def get_window_size_blocks_helper(window_size_tokens: int, window_block_size: in
     blocks = int(window_size_tokens) // int(window_block_size)
     return torch.tensor(blocks, dtype=torch.int32)
 
-
+# move to train.py
 def get_num_window_blocks(schedule: float, *, attention_window_len: int, window_block_size: int) -> torch.Tensor:
     """Attention window schedule driven by normalized progress schedule s∈[0,1].
     Returns the number of blocks for the sliding window, parameterized by attention_window_len and window_block_size.
@@ -453,6 +453,7 @@ def get_num_window_blocks(schedule: float, *, attention_window_len: int, window_
         x = 0.0 if schedule < 0 else (1.0 if schedule > 1 else schedule)
     # Cubic increase (by @jadenj3o)
     factor = 4 * x ** 3 - 6 * x ** 2 + 3 * x
+    #scaled attn window
     window_tokens = next_multiple_of_n(attention_window_len * factor, n=window_block_size)
     return get_window_size_blocks_helper(window_tokens, window_block_size)
 

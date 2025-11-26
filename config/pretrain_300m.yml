@@ -6,12 +6,12 @@ wandb_run_name: '280m'
 torch.coordinate_descent_tuning: true
 # Pretraining configuration
 train_shards: "data/fineweb-edu/edu_fineweb_train_*.bin"
-target_tokens: 7_000_000_000
-cooldown_frac: 0.4
+target_tokens: 100_000_000
+cooldown_frac: 0.0
 learning_rate_schedule: linear_decay
 learning_rate_floor: 0.3
-training_sequence_length: 65536        #  N * 1024; must be divisible by window_block_size
-train_attention_window_len: 1792        # largest sliding attention window used during training; must be divisible by window_block_size
+training_sequence_length: 3456        #  N * 1024; must be divisible by window_block_size
+train_attention_window_len: 3456        # largest sliding attention window used during training; must be divisible by window_block_size
 # Optimizers configuration
 optimizers:
   - type: AdamW
@@ -40,11 +40,11 @@ val_shards:
   - type: "fineweb-edu"
     path: "data/fineweb-edu/edu_fineweb_val_*.bin"
     target_tokens: 5_242_880
-    sequence_length: 262_144       # 4 * 64 * 1024
-val_loss_every_tokens:     52_428_800
+    sequence_length: 65_536
+val_loss_every_tokens:     6_912_000
 # Checkpoints
-checkpoint_warmup_tokens:   209_715_200     # token warmup before checkpoints
-checkpoint_per_n_tokens:     52_428_800         # checkpoint interval by tokens
-save_checkpoint: true
+checkpoint_warmup_tokens:   0     # token warmup before checkpoints
+checkpoint_per_n_tokens:     0         # checkpoint interval by tokens
+save_checkpoint: false
 # Model Definition
-model_spec: daisy_280m
+model_spec: daisy_300m

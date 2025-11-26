@@ -557,6 +557,7 @@ while progress.tokens_processed < progress.target_tokens:
             f"Pre-autocast: inputs.shape={inputs.shape} inputs.device.type={inputs.device.type} "
             f"targets.shape={targets.shape} targets.device.type={targets.device.type}"
         )
+
         n_blocks = get_num_window_blocks(progress.s,
                                          attention_window_len=args.train_attention_window_len,
                                          window_block_size=WINDOW_BLOCK_SIZE,
