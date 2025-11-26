@@ -8,3 +8,7 @@ __pycache__/
 logs/
 tmp/
 .idea
+
+#keep small test samples
+!dclm_baseline_overfit_1M.bin
+!edu_fineweb_overfit_1M.bin
