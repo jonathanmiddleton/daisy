@@ -44,8 +44,8 @@ def lr_sweep(
     window_block_size: int = 128,
     # sweep setup
     num_scales: int = 200,
-    scale_min: float = 1e-2,
-    scale_max: float = 1e+2,
+    scale_min: float = 1e-1,
+    scale_max: float = 1e+1,
     steps_per_scale: int = 20,
     smooth: float = 0.85,  # EMA on loss (computed within each scale window)
     device: str = "cuda",
@@ -371,17 +371,17 @@ def lr_sweep(
 
 
 if __name__ == "__main__":
-    from models import get_model_class
+    from models import get_model_class, model_from_spec
     from training.hparams import load_hparams_from_yaml
     import os
 
     device = "cuda"
     parser = ArgumentParser("Sweep learning rate scales across optimizer param groups")
     parser.add_argument("--config", type=str, required=True, help="Path to YAML training config.")
-    parser.add_argument("--num_scales", type=int, default=200)
-    parser.add_argument("--steps_per_scale", type=int, default=20)
-    parser.add_argument("--scale_min", type=float, default=None, help="Multiplicative LR scale min (default 1e-2)")
-    parser.add_argument("--scale_max", type=float, default=None, help="Multiplicative LR scale max (default 1e+2)")
+    parser.add_argument("--num_scales", type=int, default=20)
+    parser.add_argument("--steps_per_scale", type=int, default=10)
+    parser.add_argument("--scale_min", type=float, default=0.1, help="Multiplicative LR scale min")
+    parser.add_argument("--scale_max", type=float, default=10.0, help="Multiplicative LR scale max")
     parser.add_argument("--accum_steps", type=int, default=1)
     parser.add_argument("--clip_norm", type=float, default=None)
     parser.add_argument("--smooth", type=float, default=0.85)
@@ -392,18 +392,8 @@ if __name__ == "__main__":
     from training.hparams import load_hparams_from_yaml
 
     params = load_hparams_from_yaml(cli.config)
-    Model = get_model_class(params.model_class)
-    model = Model(
-        vocab_size=params.vocab_size,
-        num_layers=params.num_layers,
-        num_heads=params.num_heads,
-        model_dim=params.model_dim,
-        max_seq_len=int(getattr(params, 'max_seq_len', params.training_sequence_length)),
-        head_dim=params.head_dim,
-        window_block_size=params.window_block_size,
-        eos_token_id=params.eos_token_id,
-    )
-    model.to(device)
+    spec = cli.config['model_spec']
+    model = model_from_spec(spec, device=device)
     model = torch.compile(model, dynamic=False)
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     rank = int(os.environ.get("RANK", "0"))
@@ -433,7 +423,7 @@ if __name__ == "__main__":
         optimizers=optimizers,
         data_generator=data_loader,
         train_attention_window_len=params.train_attention_window_len,
-        window_block_size=params.window_block_size,
+        window_block_size=128,
         num_scales=n_scales,
         scale_min=sc_min,
         scale_max=sc_max,
