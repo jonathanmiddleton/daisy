@@ -14,7 +14,7 @@ from training.optim import get_num_window_blocks
 
 
 # Utilities for group introspection ---------------------------------------------------------------
-
+#noinspection PyShadowingNames
 def _enumerate_param_groups(optimizers: Iterable[torch.optim.Optimizer]):
     """
     Yield tuples (opt_idx, group_idx, group_dict) for every param group across all optimizers.
@@ -32,7 +32,7 @@ def _group_key(oi: int, gi: int, g: Dict[str, Any]) -> str:
 
 
 # LR sweep ----------------------------------------------------------------------------------------
-
+#noinspection PyShadowingNames
 def lr_sweep(
     model: torch.nn.Module,
     optimizers: List[torch.optim.Optimizer] | torch.optim.Optimizer,
@@ -106,6 +106,7 @@ def lr_sweep(
     all_keys = list(group_infos.keys())
 
     # Function to set LRs based on a scalar for all present (swept) groups
+    # noinspection PyShadowingNames
     def set_lrs(scalar: float):
         for _, _, g in _enumerate_param_groups(optimizers):
             g["lr"] = float(g.get("base_lr", 1e-3)) * float(scalar)
