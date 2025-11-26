@@ -21,11 +21,11 @@ optimizers:
     fused: true
     params:
       - group: head_params
-        lr: 0.016477
+        lr: 0.0004
       - group: embed_params
-        lr: 0.8238826892738851
+        lr: 0.0216
       - group: scalar_params
-        lr: 0.061791201695541385
+        lr: 0.0016
   - type: Muon
     momentum: 0.95
     weight_decay: 0.0
