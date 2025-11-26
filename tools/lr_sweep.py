@@ -503,10 +503,10 @@ if __name__ == "__main__":
     parser = ArgumentParser("Sweep learning rate scales across optimizer param groups")
     parser.add_argument("--config", type=str, required=True, help="Path to YAML training config.")
     parser.add_argument("--num_scales", type=int, default=10)
-    parser.add_argument("--steps_per_scale", type=int, default=200, help="Number of steps per scale (total steps = num_scales * steps_per_scale * accum_steps)")
+    parser.add_argument("--steps_per_scale", type=int, default=200, help="Number of steps per scale (total steps = num_scales * steps_per_scale)")
     parser.add_argument("--scale_min", type=float, default=0.5, help="Multiplicative LR scale min")
     parser.add_argument("--scale_max", type=float, default=5.0, help="Multiplicative LR scale max")
-    parser.add_argument("--accum_steps", type=int, default=1, help="Grad accumulation steps, also multiples steps per scale")
+    parser.add_argument("--accum_steps", type=int, default=1, help="Grad accumulation steps")
     parser.add_argument("--clip_norm", type=float, default=None)
     parser.add_argument("--smooth", type=float, default=0.85)
     parser.add_argument("--blowup_pct", type=float, default=0.30)
@@ -560,7 +560,7 @@ if __name__ == "__main__":
         num_scales=n_scales,
         scale_min=sc_min,
         scale_max=sc_max,
-        steps_per_scale=cli.steps_per_scale*cli.accum_steps,
+        steps_per_scale=cli.steps_per_scale,
         accum_steps=cli.accum_steps,
         clip_norm=cli.clip_norm,
         smooth=cli.smooth,
