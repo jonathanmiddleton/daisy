@@ -453,8 +453,12 @@ def lr_sweep(
             for k in all_keys
         }
         eff_lrs_str = ", ".join(f"{n}={v:.3e}" for n, v in eff_lrs_map.items()) if eff_lrs_map else "none"
+        if early:
+            print(
+                f"[lr_sweep] {done}/{num_scales} ({pct:.1f}%) ema_delta={ema_out:.6f} improvement={improvement:.6f} early={early} reason={reason} eff_lrs=[{eff_lrs_str}] scale={scalar:.3e} eta={eta_s:.1f}s",
+            )
         print(
-            f"[lr_sweep] {done}/{num_scales} ({pct:.1f}%) ema_delta={ema_out:.6f} improvement={improvement:.6f} eff_lrs=[{eff_lrs_str}] scale={scalar:.3e} early={early} eta={eta_s:.1f}s",
+            f"[lr_sweep] {done}/{num_scales} ({pct:.1f}%) ema_delta={ema_out:.6f} improvement={improvement:.6f} eff_lrs=[{eff_lrs_str}] scale={scalar:.3e} eta={eta_s:.1f}s",
             flush=True,
         )
         # Finish wandb run for this scale
