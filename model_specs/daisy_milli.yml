@@ -9,3 +9,5 @@ attention_window_len: 8192
 max_seq_len: 262144
 value_embeddings: true
 tied_embeddings: false
+attn_all_layers: true
+attn_impl: 'standard' # 'standard' or `kimi_linear`
