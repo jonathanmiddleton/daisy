@@ -252,8 +252,7 @@ class DaisyCore(nn.Module):
             block_masks = [None] * L
             # building an attention mask for T>sqrt(2,147,483,647)==sqrt(INT_MAX) will fail
             torch._assert(input_seq.numel() <= 46340, "For attention masks with SDPA, input_seq length must be less than sqrt(2^31) ~= 46340 tokens")
-            # attn_mask = build_attn_mask(input_seq, self.window_size, self.eos_token_id) #TODO REMOVE
-            attn_mask = None
+            attn_mask = build_attn_mask(input_seq, self.window_size, self.eos_token_id)
 
         for i in range(L):
             if i in skip_map:
