@@ -6,7 +6,7 @@ wandb_run_name: 'pico-overfit-dclm-baseline'
 torch.coordinate_descent_tuning: false
 # Pretraining configuration
 train_shards: "data/overfit/dclm_baseline_overfit_1M.bin"
-target_tokens: 41_943_040
+target_tokens: 20_971_520
 cooldown_frac: 0.5
 learning_rate_schedule: linear_decay
 learning_rate_floor: 0.001
