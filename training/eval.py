@@ -39,7 +39,6 @@ class Evaluator:
         data_generator: Any,
         distributed_enabled: bool,
         rank: int,
-        training_sequence_length: int,
         val_type: str = "pretrain", # "pretrain" or "task"
         log_samples: bool = False,
         sample_log_path: Optional[str] = None,
@@ -48,7 +47,6 @@ class Evaluator:
         self._ddg = data_generator
         self._distributed_enabled = bool(distributed_enabled)
         self._rank = int(rank or 0)
-        self._training_sequence_length = int(training_sequence_length)
         self._val_type = val_type
 
         # Approximate global tokens processed per eval step

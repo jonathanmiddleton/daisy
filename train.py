@@ -421,7 +421,6 @@ if len(_val_cfgs) != 0:
             data_generator=_ddg,
             distributed_enabled=use_distributed,
             rank=rank,
-            training_sequence_length=args.training_sequence_length,
             val_type='pretraining'
         )
         _val_evals.append((_label, _eval, _tokens))
