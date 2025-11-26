@@ -58,6 +58,8 @@ def lr_sweep(
     wandb_project: str | None = None,
     wandb_run_name: str | None = None,
     wandb_log: bool = False,
+    # additional metadata to include in wandb.init config (e.g., full Hyperparameters dict)
+    wandb_extra_config: Dict[str, Any] | None = None,
 ):
     """
     Sweep a multiplicative LR scale between [scale_min, scale_max] across `num_scales` points.
@@ -219,19 +221,42 @@ def lr_sweep(
         if _wb_enabled:
             try:
                 import wandb as _wb  # type: ignore
+                # Assemble wandb config with sweep settings, model info, and optional hyperparameters
+                try:
+                    total_params = int(sum(p.numel() for p in model.parameters()))
+                except Exception:
+                    total_params = None
+                try:
+                    trainable_params = int(sum(p.numel() for p in model.parameters() if p.requires_grad))
+                except Exception:
+                    trainable_params = None
+                model_class = f"{model.__class__.__module__}.{model.__class__.__name__}"
+
+                _cfg: Dict[str, Any] = {
+                    # Sweep details
+                    "lr_sweep/scale": float(scalar),
+                    "lr_sweep/steps_per_scale": int(steps_per_scale),
+                    "lr_sweep/num_scales": int(num_scales),
+                    "lr_sweep/accum_steps": int(accum_steps),
+                    "lr_sweep/clip_norm": float(clip_norm) if clip_norm is not None else None,
+                    "lr_sweep/smooth": float(smooth),
+                    "lr_sweep/blowup_pct": float(blowup_pct),
+                    "lr_sweep/scaled_groups": [group_infos[k].get("name") or k for k in (scaled_keys or [])],
+                    # Model info
+                    "model/class": model_class,
+                    "model/parameters_total": total_params,
+                    "model/parameters_trainable": trainable_params,
+                }
+                # If available, include model spec and full hyperparameters under a namespaced key
+                if isinstance(wandb_extra_config, dict) and wandb_extra_config:
+                    _cfg["hparams"] = wandb_extra_config
+                    if "model_spec" in wandb_extra_config:
+                        _cfg["model/spec"] = str(wandb_extra_config.get("model_spec"))
+
                 _wb_run = _wb.init(
                     project=str(wandb_project),
                     name=f"{_wb_name_base}-{float(scalar):.3e}",
-                    config={
-                        "lr_sweep/scale": float(scalar),
-                        "lr_sweep/steps_per_scale": int(steps_per_scale),
-                        "lr_sweep/num_scales": int(num_scales),
-                        "lr_sweep/accum_steps": int(accum_steps),
-                        "lr_sweep/clip_norm": float(clip_norm) if clip_norm is not None else None,
-                        "lr_sweep/smooth": float(smooth),
-                        "lr_sweep/blowup_pct": float(blowup_pct),
-                        "lr_sweep/scaled_groups": [group_infos[k].get("name") or k for k in (scaled_keys or [])],
-                    },
+                    config=_cfg,
                 )
             except Exception:
                 _wb = None
@@ -471,16 +496,17 @@ def lr_sweep(
 if __name__ == "__main__":
     from models import get_model_class, model_from_spec
     from training.hparams import load_hparams_from_yaml
+    from dataclasses import asdict
     import os
 
     device = "cuda"
     parser = ArgumentParser("Sweep learning rate scales across optimizer param groups")
     parser.add_argument("--config", type=str, required=True, help="Path to YAML training config.")
-    parser.add_argument("--num_scales", type=int, default=20)
-    parser.add_argument("--steps_per_scale", type=int, default=200)
-    parser.add_argument("--scale_min", type=float, default=0.1, help="Multiplicative LR scale min")
-    parser.add_argument("--scale_max", type=float, default=10.0, help="Multiplicative LR scale max")
-    parser.add_argument("--accum_steps", type=int, default=1)
+    parser.add_argument("--num_scales", type=int, default=10)
+    parser.add_argument("--steps_per_scale", type=int, default=200, help="Number of steps per scale (total steps = num_scales * steps_per_scale * accum_steps)")
+    parser.add_argument("--scale_min", type=float, default=0.5, help="Multiplicative LR scale min")
+    parser.add_argument("--scale_max", type=float, default=5.0, help="Multiplicative LR scale max")
+    parser.add_argument("--accum_steps", type=int, default=1, help="Grad accumulation steps, also multiples steps per scale")
     parser.add_argument("--clip_norm", type=float, default=None)
     parser.add_argument("--smooth", type=float, default=0.85)
     parser.add_argument("--blowup_pct", type=float, default=0.30)
@@ -521,7 +547,7 @@ if __name__ == "__main__":
 
 
     # Resolve deprecated aliases
-    n_scales = cli.num_scales
+    n_scales = cli.num_scales * cli.accum_steps
     sc_min = cli.scale_min
     sc_max = cli.scale_max
 
@@ -543,6 +569,7 @@ if __name__ == "__main__":
         wandb_project=getattr(params, "wandb_project", "") or None,
         wandb_run_name=getattr(params, "wandb_run_name", "") or None,
         wandb_log=bool(getattr(params, "wandb_log", False)),
+        wandb_extra_config=asdict(params),
     )
 
     # Log JSON and print a table focused on effective LRs (scale reported secondarily)
