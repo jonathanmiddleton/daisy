@@ -44,8 +44,8 @@ def lr_sweep(
     window_block_size: int = 128,
     # sweep setup
     num_scales: int = 200,
-    scale_min: float = 1e-1,
-    scale_max: float = 1e+1,
+    scale_min: float = 0.5,
+    scale_max: float = 5.0,
     steps_per_scale: int = 20,
     smooth: float = 0.85,  # EMA on loss (computed within each scale window)
     device: str = "cuda",
@@ -547,7 +547,7 @@ if __name__ == "__main__":
 
 
     # Resolve deprecated aliases
-    n_scales = cli.num_scales * cli.accum_steps
+    n_scales = cli.num_scales
     sc_min = cli.scale_min
     sc_max = cli.scale_max
 
@@ -560,7 +560,7 @@ if __name__ == "__main__":
         num_scales=n_scales,
         scale_min=sc_min,
         scale_max=sc_max,
-        steps_per_scale=cli.steps_per_scale,
+        steps_per_scale=cli.steps_per_scale*cli.accum_steps,
         accum_steps=cli.accum_steps,
         clip_norm=cli.clip_norm,
         smooth=cli.smooth,
