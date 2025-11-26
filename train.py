@@ -467,7 +467,6 @@ while progress.tokens_processed < progress.target_tokens:
 
         per_ds_results: list[tuple[str, dict]] = []
         for _label, _ev, _target_tokens in _val_evals:
-            _ev.reset_generator()
             logger.info(
                 f"[eval] start dataset={_label} target_tokens={_target_tokens})"
             )
