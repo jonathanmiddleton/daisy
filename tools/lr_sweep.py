@@ -52,6 +52,8 @@ def lr_sweep(
     accum_steps: int = 1,
     clip_norm: float | None = None,
     blowup_pct: float = 0.30,  # early stop when EMA > (1+blowup_pct)*best
+    # scaling control
+    scaled_group_names: List[str] | None = None,
 ):
     """
     Sweep a multiplicative LR scale between [scale_min, scale_max] across `num_scales` points.
@@ -101,15 +103,46 @@ def lr_sweep(
             "frozen": False,  # set below
         }
 
-    # In the refactored version, groups to sweep are determined upstream by how the optimizer is built
-    # (frozen groups are excluded from the optimizer via build_optimizers_from_cfg with frozen_groups).
+    # Determine which param groups to scale vs. keep fixed at their base LR
     all_keys = list(group_infos.keys())
+    # Build lookup from external name and internal key -> keys
+    name_to_keys: Dict[str, List[str]] = {}
+    for k, info in group_infos.items():
+        nm = info.get("name")
+        if isinstance(nm, str):
+            name_to_keys.setdefault(nm, []).append(k)
+        # also support addressing by internal key
+        name_to_keys.setdefault(k, []).append(k)
 
-    # Function to set LRs based on a scalar for all present (swept) groups
+    if scaled_group_names is None:
+        scaled_keys = set(all_keys)  # default: scale all
+        requested_names: List[str] = []
+    else:
+        requested_names = [str(n).strip() for n in scaled_group_names if str(n).strip()]
+        missing: List[str] = []
+        scaled_keys = set()
+        for nm in requested_names:
+            keys = name_to_keys.get(nm)
+            if not keys:
+                missing.append(nm)
+            else:
+                scaled_keys.update(keys)
+        if missing:
+            available = sorted([k for k in name_to_keys.keys()])
+            raise ValueError(
+                "Requested groups not found: " + ", ".join(missing) +
+                ". Available groups: " + ", ".join(available)
+            )
+        if not scaled_keys:
+            raise ValueError("No valid parameter groups selected to scale.")
+
+    # Function to set LRs based on a scalar for scaled groups; keep others at base LR
     # noinspection PyShadowingNames
     def set_lrs(scalar: float):
-        for _, _, g in _enumerate_param_groups(optimizers):
-            g["lr"] = float(g.get("base_lr", 1e-3)) * float(scalar)
+        for oi2, gi2, g in _enumerate_param_groups(optimizers):
+            k2 = _group_key(oi2, gi2, g)
+            base = float(g.get("base_lr", 1e-3))
+            g["lr"] = base * float(scalar) if k2 in scaled_keys else base
 
     # Initialize sweep (compute geometric positions for scales)
     def _scale_at(i: int) -> float:
@@ -154,7 +187,8 @@ def lr_sweep(
     for key in all_keys:
         info = group_infos[key]
         name = info.get("name") or key
-        print(f"  - {name}: base_lr={info['base_lr']:.3e}", flush=True)
+        tag = "[scaled]" if key in scaled_keys else "[fixed]"
+        print(f"  - {name}: base_lr={info['base_lr']:.3e} {tag}", flush=True)
 
     print_every = max(1, num_scales // 50) if num_scales else 1
 
@@ -180,7 +214,7 @@ def lr_sweep(
             opt.load_state_dict(copy.deepcopy(opt_baselines[oi]))
         set_lrs(scalar)
         data_generator.reset()
-        # Prepare snapshots for swept groups (used to compute per-step param deltas)
+        # Prepare snapshots for tracked groups (all groups)
         swept_keys = list(all_keys)
         prev_snapshots: Dict[str, List[torch.Tensor]] = {}
         for oi2, gi2, g2 in _enumerate_param_groups(optimizers):
@@ -339,7 +373,10 @@ def lr_sweep(
         done = i + 1
         pct = 100.0 * done / max(1, num_scales)
         eta_s = (elapsed / max(1e-9, done)) * max(0, num_scales - done)
-        eff_lrs_map = { (group_infos[k].get("name") or k): (group_infos[k]["base_lr"] * scalar) for k in all_keys }
+        eff_lrs_map = {
+            (group_infos[k].get("name") or k): ((group_infos[k]["base_lr"] * scalar) if k in scaled_keys else group_infos[k]["base_lr"])
+            for k in all_keys
+        }
         eff_lrs_str = ", ".join(f"{n}={v:.3e}" for n, v in eff_lrs_map.items()) if eff_lrs_map else "none"
         print(
             f"[lr_sweep] {done}/{num_scales} ({pct:.1f}%) ema_delta={ema_out:.6f} improvement={improvement:.6f} eff_lrs=[{eff_lrs_str}] scale={scalar:.3e} early={early} eta={eta_s:.1f}s",
@@ -350,7 +387,10 @@ def lr_sweep(
     if losses:
         i_max = max(range(len(losses)), key=lambda i: losses[i])
         best_scalar = lrs_scalars[i_max]
-        best_eff_lrs_map = { (group_infos[k].get("name") or k): (group_infos[k]["base_lr"] * best_scalar) for k in all_keys }
+        best_eff_lrs_map = {
+            (group_infos[k].get("name") or k): ((group_infos[k]["base_lr"] * best_scalar) if k in scaled_keys else group_infos[k]["base_lr"])
+            for k in all_keys
+        }
         eff_best_str = ", ".join(f"{n}={v:.3e}" for n, v in best_eff_lrs_map.items()) if best_eff_lrs_map else "none"
         print(
             f"[lr_sweep] collected {len(losses)} points; max EMA(delta) at step {i_max+1} ema_delta={losses[i_max]:.6f} eff_lrs=[{eff_best_str}] scale={best_scalar:.3e}",
@@ -366,6 +406,8 @@ def lr_sweep(
         "scale_min": float(scale_min),
         "scale_max": float(scale_max),
         "metric": "ema_delta_loss_debiased",
+        "scaled_keys": list(scaled_keys),
+        "scaled_names": requested_names,
     }
     return lrs_scalars, losses, improvements, meta
 
@@ -390,15 +432,14 @@ if __name__ == "__main__":
         "--group",
         "-g",
         required=True,
-        help="Comma-separated list of parameter group names to isolate together (e.g., embed_params,attn_params)",
+        help="Comma-separated list of parameter group names to scale (e.g., embed_params,attn_params). Unspecified groups keep their configured LR and are not frozen.",
     )
     cli = parser.parse_args()
 
     from training.hparams import load_hparams_from_yaml
 
     params = load_hparams_from_yaml(cli.config)
-    spec = cli.config['model_spec']
-    model = model_from_spec(spec, device=device)
+    model = model_from_spec(params.model_spec, device=device)
     model = torch.compile(model, dynamic=False)
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     rank = int(os.environ.get("RANK", "0"))
@@ -410,13 +451,16 @@ if __name__ == "__main__":
         device=device,
     )
 
-    from training.optim import build_optimizers_from_cfg, get_referenced_groups
+    from training.optim import build_optimizers_from_cfg
 
-    # Parse comma-separated groups; apply sweep jointly to all selected groups
+    # Parse comma-separated groups; apply scaling only to these groups. Others remain at config LR.
     selected_groups = [g.strip() for g in str(cli.group).split(",") if g.strip()]
-    frozens = [g for g in get_referenced_groups(params.optimizers) if g not in selected_groups]
+    if not selected_groups:
+        raise SystemExit("--group must specify at least one parameter group name")
+
+    # Build optimizers with ALL groups; do not freeze unspecified groups
     optimizers = build_optimizers_from_cfg(
-        cfg_list=params.optimizers, model=model, rank=rank, world_size=world_size, frozen_groups=frozens
+        cfg_list=params.optimizers, model=model, rank=rank, world_size=world_size
     )
 
 
@@ -439,6 +483,7 @@ if __name__ == "__main__":
         clip_norm=cli.clip_norm,
         smooth=cli.smooth,
         blowup_pct=cli.blowup_pct,
+        scaled_group_names=selected_groups,
     )
 
     # Log JSON and print a table focused on effective LRs (scale reported secondarily)
@@ -446,12 +491,12 @@ if __name__ == "__main__":
     def _name_of(k: str) -> str:
         info = groups[k]
         return info.get("name") or k
-    swept_keys = list(groups.keys())
-    swept_names = [_name_of(k) for k in swept_keys]
+    scaled_keys = meta.get("scaled_keys", [])
+    swept_names = [_name_of(k) for k in scaled_keys]
 
     def _eff_lrs_for_scalar(s: float) -> Dict[str, float]:
-        # effective LRs for swept groups only
-        return { _name_of(k): float(groups[k]["base_lr"]) * float(s) for k in swept_keys }
+        # effective LRs for scaled groups only
+        return { _name_of(k): (float(groups[k]["base_lr"]) * float(s)) for k in scaled_keys }
 
     results = [
         {
