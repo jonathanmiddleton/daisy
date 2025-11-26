@@ -455,7 +455,7 @@ if use_distributed:
 step = 0
 t0 = time.perf_counter()
 warmup_end = 0.0
-
+max_seq_len = args.training_sequence_length
 while progress.tokens_processed < progress.target_tokens:
     # --------------- Evaluation -----------------
     if progress.should_eval():
@@ -545,7 +545,7 @@ while progress.tokens_processed < progress.target_tokens:
 
         # TODO hack remove
         min_seq_len = 4096
-        max_seq_len = args.training_sequence_length
+
         def seq_len_from_progress(s: float,
                                   min_len: int,
                                   max_len: int,
@@ -663,6 +663,7 @@ while progress.tokens_processed < progress.target_tokens:
                 "lr_scale_base": lr_scale_base,
                 "learning_rate_floor": float(getattr(args, "learning_rate_floor", 0.0)),
                 "train/time_ms": approx_training_time_ms,
+                "target_seq_len":target_seq_len
             }
         )
 
