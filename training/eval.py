@@ -40,9 +40,6 @@ class Evaluator:
         distributed_enabled: bool,
         rank: int,
         training_sequence_length: int,
-        mark_dynamic_dim: int = -1,
-        mark_dynamic_min: int = -1,
-        mark_dynamic_max: int = -1,
         val_type: str = "pretrain", # "pretrain" or "task"
         log_samples: bool = False,
         sample_log_path: Optional[str] = None,
@@ -53,10 +50,6 @@ class Evaluator:
         self._rank = int(rank or 0)
         self._training_sequence_length = int(training_sequence_length)
         self._val_type = val_type
-
-        self._mark_dynamic_dim = mark_dynamic_dim
-        self._mark_dynamic_min = mark_dynamic_min
-        self._mark_dynamic_max = mark_dynamic_max
 
         # Approximate global tokens processed per eval step
         self._world_batch_tokens: Optional[int] = None
