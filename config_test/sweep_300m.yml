@@ -1,7 +1,7 @@
 # Logging
 wandb_log: true
 wandb_project: 'daisy-300m-sweep'
-wandb_run_name: '300m'
+wandb_run_name: '300m8192'
 # Torch config
 torch.coordinate_descent_tuning: false
 # Pretraining configuration
