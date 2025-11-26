@@ -54,6 +54,10 @@ def lr_sweep(
     blowup_pct: float = 0.30,  # early stop when EMA > (1+blowup_pct)*best
     # scaling control
     scaled_group_names: List[str] | None = None,
+    # optional Weights & Biases logging per-scale
+    wandb_project: str | None = None,
+    wandb_run_name: str | None = None,
+    wandb_log: bool = False,
 ):
     """
     Sweep a multiplicative LR scale between [scale_min, scale_max] across `num_scales` points.
@@ -207,6 +211,40 @@ def lr_sweep(
     # Sweep loop over scales; reset model/optimizer/data at each new scale
     for i in range(num_scales):
         scalar = _scale_at(i)
+        # Optional: start a fresh wandb run for this scale
+        _wb = None
+        _wb_run = None
+        _wb_enabled = bool(wandb_log) and bool(wandb_project)
+        _wb_name_base = (wandb_run_name or "lr-sweep").strip()
+        if _wb_enabled:
+            try:
+                import wandb as _wb  # type: ignore
+                _wb_run = _wb.init(
+                    project=str(wandb_project),
+                    name=f"{_wb_name_base}-{float(scalar):.3e}",
+                    config={
+                        "lr_sweep/scale": float(scalar),
+                        "lr_sweep/steps_per_scale": int(steps_per_scale),
+                        "lr_sweep/num_scales": int(num_scales),
+                        "lr_sweep/accum_steps": int(accum_steps),
+                        "lr_sweep/clip_norm": float(clip_norm) if clip_norm is not None else None,
+                        "lr_sweep/smooth": float(smooth),
+                        "lr_sweep/blowup_pct": float(blowup_pct),
+                        "lr_sweep/scaled_groups": [group_infos[k].get("name") or k for k in (scaled_keys or [])],
+                    },
+                )
+            except Exception:
+                _wb = None
+                _wb_run = None
+                _wb_enabled = False
+
+        # local helper to satisfy API shape requested in issue
+        def log_wandb(d: dict):  # noqa: F811 - shadows train.log_wandb intentionally in this scope
+            if _wb_enabled and _wb_run is not None:
+                try:
+                    _wb.log(d)
+                except Exception:
+                    pass
         # Reset states for fair comparison
         model.load_state_dict(model_baseline, strict=True)
         optimizers = orig_optimizers
@@ -229,6 +267,9 @@ def lr_sweep(
         end_val = None
         early = False
         reason = ""
+        # Track tokens processed within this scale (global tokens across ranks per optimizer step)
+        tokens_processed = 0
+        tokens_per_optim_step = int(getattr(data_generator, "batch_size", 0)) * int(accum_steps)
 
         for step in range(steps_per_scale):
             for opt in optimizers:
@@ -321,6 +362,15 @@ def lr_sweep(
                 )
 
             val = total / accum_steps
+            # advance token counter for this optimizer step (after GA)
+            if tokens_per_optim_step:
+                tokens_processed += tokens_per_optim_step
+            # per-iteration logging to wandb (if enabled)
+            log_wandb({
+                "train/loss": float(val),
+                "tokens": int(tokens_processed),
+                "lr_scale": float(scalar),
+            })
             # capture start and latest values for improvement metric
             if start_val is None:
                 start_val = val
@@ -382,6 +432,12 @@ def lr_sweep(
             f"[lr_sweep] {done}/{num_scales} ({pct:.1f}%) ema_delta={ema_out:.6f} improvement={improvement:.6f} eff_lrs=[{eff_lrs_str}] scale={scalar:.3e} early={early} eta={eta_s:.1f}s",
             flush=True,
         )
+        # Finish wandb run for this scale
+        if _wb_enabled and _wb is not None:
+            try:
+                _wb.finish()
+            except Exception:
+                pass
 
     # summary print
     if losses:
@@ -484,6 +540,9 @@ if __name__ == "__main__":
         smooth=cli.smooth,
         blowup_pct=cli.blowup_pct,
         scaled_group_names=selected_groups,
+        wandb_project=getattr(params, "wandb_project", "") or None,
+        wandb_run_name=getattr(params, "wandb_run_name", "") or None,
+        wandb_log=bool(getattr(params, "wandb_log", False)),
     )
 
     # Log JSON and print a table focused on effective LRs (scale reported secondarily)
