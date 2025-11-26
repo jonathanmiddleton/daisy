@@ -386,7 +386,12 @@ if __name__ == "__main__":
     parser.add_argument("--clip_norm", type=float, default=None)
     parser.add_argument("--smooth", type=float, default=0.85)
     parser.add_argument("--blowup_pct", type=float, default=0.30)
-    parser.add_argument("--group", "-g", required=True, help="Name of the parameter group to isolate (e.g., embed_params)")
+    parser.add_argument(
+        "--group",
+        "-g",
+        required=True,
+        help="Comma-separated list of parameter group names to isolate together (e.g., embed_params,attn_params)",
+    )
     cli = parser.parse_args()
 
     from training.hparams import load_hparams_from_yaml
@@ -407,7 +412,9 @@ if __name__ == "__main__":
 
     from training.optim import build_optimizers_from_cfg, get_referenced_groups
 
-    frozens = [g for g in get_referenced_groups(params.optimizers) if g != cli.group]
+    # Parse comma-separated groups; apply sweep jointly to all selected groups
+    selected_groups = [g.strip() for g in str(cli.group).split(",") if g.strip()]
+    frozens = [g for g in get_referenced_groups(params.optimizers) if g not in selected_groups]
     optimizers = build_optimizers_from_cfg(
         cfg_list=params.optimizers, model=model, rank=rank, world_size=world_size, frozen_groups=frozens
     )
