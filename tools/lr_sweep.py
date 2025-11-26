@@ -421,7 +421,7 @@ if __name__ == "__main__":
     parser = ArgumentParser("Sweep learning rate scales across optimizer param groups")
     parser.add_argument("--config", type=str, required=True, help="Path to YAML training config.")
     parser.add_argument("--num_scales", type=int, default=20)
-    parser.add_argument("--steps_per_scale", type=int, default=10)
+    parser.add_argument("--steps_per_scale", type=int, default=200)
     parser.add_argument("--scale_min", type=float, default=0.1, help="Multiplicative LR scale min")
     parser.add_argument("--scale_max", type=float, default=10.0, help="Multiplicative LR scale max")
     parser.add_argument("--accum_steps", type=int, default=1)
