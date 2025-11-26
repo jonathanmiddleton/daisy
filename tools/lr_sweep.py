@@ -301,7 +301,8 @@ def lr_sweep(
                 opt.zero_grad(set_to_none=True)
 
             total = 0.0
-            for _ in range(accum_steps):
+            for i in range(accum_steps):
+                print(f"microstep: {i}")
                 train, target =  next(data_generator)
                 loss = model(
                     input_seq=train,
