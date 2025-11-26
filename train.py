@@ -49,6 +49,8 @@ import torch
 from torch import nn
 import torch.distributed as dist
 
+torch.manual_seed(1337)
+
 TORCH_DISABLE_MODEL_COMPILE = os.environ.get("TORCH_DISABLE_MODEL_COMPILE", "0") == "1"
 if not TORCH_DISABLE_MODEL_COMPILE:
     # Configure inductor/dynamo compile/tuning
