@@ -541,6 +541,23 @@ while progress.tokens_processed < progress.target_tokens:
     for micro_step in range(ga_steps):
         inputs, targets = next(_train_ddg)
 
+        # TODO hack remove
+        min_seq_len = 4096
+        max_seq_len = args.training_sequence_length
+        def seq_len_from_progress(s: float,
+                                  min_len: int,
+                                  max_len: int,
+                                  block_size: int) -> int:
+            n_blocks = (max_len - min_len) // block_size
+            # s=0  -> 0, s=1 -> n_blocks
+            block_idx = int(n_blocks * s)
+            return min_len + block_size * block_idx
+        target_seq_len = seq_len_from_progress(progress.s, min_seq_len, max_seq_len, WINDOW_BLOCK_SIZE)
+        inputs = inputs[:target_seq_len]
+        tokens_per_step = inputs.size(0)
+
+        ####################
+
         if is_task:
             seq_len = inputs.size(-1)
             if seq_len > int(args.training_sequence_length):
