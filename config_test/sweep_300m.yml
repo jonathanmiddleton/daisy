@@ -10,7 +10,7 @@ target_tokens: 100_000_000
 cooldown_frac: 0.0
 learning_rate_schedule: linear_decay
 learning_rate_floor: 0.3
-training_sequence_length: 65_536
+training_sequence_length: 8_192
 train_attention_window_len: 3456
 # Optimizers configuration
 optimizers:
