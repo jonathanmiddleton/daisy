@@ -419,11 +419,6 @@ def lr_sweep(
                     early = True
                     reason = "non-finite EMA(delta)"
                     break
-                # if we have a strong degradation (negative improvement), bail
-                if step > 4 and ema_debiased < 0:
-                    early = True
-                    reason = "EMA(delta) negative (loss increasing)"
-                    break
                 if math.isfinite(global_best) and step > 4 and ema_debiased < (1.0 - blowup_pct) * global_best:
                     early = True
                     reason = "EMA(delta) dropped below blowup threshold vs global best"
