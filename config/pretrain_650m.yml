@@ -21,11 +21,18 @@ optimizers:
     fused: true
     params:
       - group: head_params
-        lr: 0.003464
-      - group: embed_params        # LVP sqrt(d)-rule
-        lr: 0.110848               # instead of 0.1732
+        lr: 0.011183  # 0.003464
+      - group: embed_params
+        lr: 0.55917 # 0.1732
       - group: scalar_params
-        lr: 0.01299
+        lr: 0.041938  # 0.01299
+#    params:
+#      - group: head_params
+#        lr: 0.003464
+#      - group: embed_params        # LVP sqrt(d)-rule
+#        lr: 0.110848               # instead of 0.1732
+#      - group: scalar_params
+#        lr: 0.01299
   - type: Muon
     momentum: 0.95
     weight_decay: 0.0
