@@ -51,7 +51,7 @@ def lr_sweep(
     device: str = "cuda",
     accum_steps: int = 1,
     clip_norm: float | None = None,
-    blowup_pct: float = 0.30,  # early stop when EMA > (1+blowup_pct)*best
+    # blowup_pct: float = 0.30,  # early stop when EMA > (1+blowup_pct)*best
     # scaling control
     scaled_group_names: List[str] | None = None,
     # optional Weights & Biases logging per-scale
@@ -185,8 +185,8 @@ def lr_sweep(
     t0 = time.time()
     print(
         f"[lr_sweep] num_scales={num_scales}, scale_min={scale_min:.3e}, scale_max={scale_max:.3e}, "
-        f"steps_per_scale={steps_per_scale}, accum_steps={accum_steps}, smooth={smooth}, "
-        f"blowup_pct={blowup_pct*100:.1f}%, metric=EMA(delta_loss, debiased)",
+        f"steps_per_scale={steps_per_scale}, accum_steps={accum_steps}, smooth={smooth},",
+        # f"blowup_pct={blowup_pct*100:.1f}%, metric=EMA(delta_loss, debiased)",
         flush=True,
     )
     print("[lr_sweep] Groups:", flush=True)
@@ -240,7 +240,7 @@ def lr_sweep(
                     "lr_sweep/accum_steps": int(accum_steps),
                     "lr_sweep/clip_norm": float(clip_norm) if clip_norm is not None else None,
                     "lr_sweep/smooth": float(smooth),
-                    "lr_sweep/blowup_pct": float(blowup_pct),
+                    # "lr_sweep/blowup_pct": float(blowup_pct),
                     "lr_sweep/scaled_groups": [group_infos[k].get("name") or k for k in (scaled_keys or [])],
                     # Model info
                     "model/class": model_class,
@@ -420,10 +420,10 @@ def lr_sweep(
                     early = True
                     reason = "non-finite EMA(delta)"
                     break
-                if math.isfinite(global_best) and step > 4 and ema_debiased < (1.0 - blowup_pct) * global_best:
-                    early = True
-                    reason = "EMA(delta) dropped below blowup threshold vs global best"
-                    break
+                # if math.isfinite(global_best) and step > 4 and ema_debiased < (1.0 - blowup_pct) * global_best:
+                #     early = True
+                #     reason = "EMA(delta) dropped below blowup threshold vs global best"
+                #     break
             prev_val = val
 
         # record results for this scale (debiased EMA and total improvement)
@@ -509,7 +509,7 @@ if __name__ == "__main__":
     parser.add_argument("--accum_steps", type=int, default=1, help="Grad accumulation steps")
     parser.add_argument("--clip_norm", type=float, default=None)
     parser.add_argument("--smooth", type=float, default=0.85)
-    parser.add_argument("--blowup_pct", type=float, default=0.30)
+    # parser.add_argument("--blowup_pct", type=float, default=0.30)
     parser.add_argument(
         "--group",
         "-g",
@@ -564,7 +564,6 @@ if __name__ == "__main__":
         accum_steps=cli.accum_steps,
         clip_norm=cli.clip_norm,
         smooth=cli.smooth,
-        blowup_pct=cli.blowup_pct,
         scaled_group_names=selected_groups,
         wandb_project=getattr(params, "wandb_project", "") or None,
         wandb_run_name=getattr(params, "wandb_run_name", "") or None,

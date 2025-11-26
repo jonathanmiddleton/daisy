@@ -10,8 +10,8 @@ target_tokens: 18_000_000_000
 cooldown_frac: 1
 learning_rate_schedule: cosine_decay
 learning_rate_floor: 0.1
-training_sequence_length: 32768
-train_attention_window_len: 32768
+training_sequence_length: 8192
+train_attention_window_len: 8192
 # Optimizers configuration
 optimizers:
   - type: AdamW
@@ -39,10 +39,10 @@ val_shards:
   - type: "dclm_baseline"
     path: "data/dclm_baseline/dclm_baseline_val_*.bin"
     target_tokens: 10_485_760
-    sequence_length: 131_072
+    sequence_length: 8192
 val_loss_every_tokens:    524_288_000
 # Checkpoints
-checkpoint_warmup_tokens:   12_000_0000_000
+checkpoint_warmup_tokens:   1_000_000_000
 checkpoint_per_n_tokens:     1
 save_checkpoint: true
 # Model Definition
