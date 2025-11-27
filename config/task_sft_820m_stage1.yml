@@ -19,8 +19,8 @@ val_shards:
     sequence_length: 8192 #must be small enough to be computable via SDPA since SDPA is forced for Tasks
 
 # Run length: PER-RANK token budget
-target_tokens: 1_000_000
-val_loss_every_tokens: 50_000
+target_tokens: 10_000_000
+val_loss_every_tokens: 500_000
 
 # Hard max example length
 train_attention_window_len: 8192
