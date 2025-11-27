@@ -5,6 +5,11 @@ import torch.distributed as dist
 from typing import Any
 from torch import nn
 import math
+from tools.master_logger import MasterLogger
+
+logger = MasterLogger
+
+# from tools.compile_helpers import dynamo_force_static_param_shapes
 
 
 def derive_named_param_groups(model: nn.Module) -> dict[str, list[nn.Parameter]]:
@@ -126,6 +131,7 @@ def update_faster(acc_bf16_view_u16: Tensor, mantissa: Tensor, momentum_buffer: 
     acc_bf16_view_u16.copy_((acc_m_u32 >> 16).to(torch.uint16))
     mantissa.copy_(acc_m_u32.to(torch.uint16))
 
+# with dynamo_force_static_param_shapes(False):
 @torch.compile
 def update_slower(acc: Tensor, momentum_buffer: Tensor, grad: Tensor, momentum: Tensor, eff_lr: Tensor,
                   eff_weight_decay: Tensor):
@@ -436,7 +442,7 @@ def get_window_size_blocks_helper(window_size_tokens: int, window_block_size: in
     blocks = int(window_size_tokens) // int(window_block_size)
     return torch.tensor(blocks, dtype=torch.int32)
 
-
+# move to train.py
 def get_num_window_blocks(schedule: float, *, attention_window_len: int, window_block_size: int) -> torch.Tensor:
     """Attention window schedule driven by normalized progress schedule s∈[0,1].
     Returns the number of blocks for the sliding window, parameterized by attention_window_len and window_block_size.
@@ -447,6 +453,7 @@ def get_num_window_blocks(schedule: float, *, attention_window_len: int, window_
         x = 0.0 if schedule < 0 else (1.0 if schedule > 1 else schedule)
     # Cubic increase (by @jadenj3o)
     factor = 4 * x ** 3 - 6 * x ** 2 + 3 * x
+    #scaled attn window
     window_tokens = next_multiple_of_n(attention_window_len * factor, n=window_block_size)
     return get_window_size_blocks_helper(window_tokens, window_block_size)
 
@@ -534,6 +541,7 @@ def build_optimizers_from_cfg(
                     f"Known groups: {sorted(param_groups_by_name.keys())}"
                 )
             if frozen_groups and pg.get("group") in frozen_groups:
+                logger.info(f"Freezing group '{name}' for optimizer '{opt_type}'")
                 continue
             referenced_group_names.add(name)
             group_opts = {k: v for k, v in pg.items() if k != "group"}
@@ -551,7 +559,7 @@ def build_optimizers_from_cfg(
             # Enforce explicit weight_decay in config for Muon (breaking change)
             if "weight_decay" not in opt_kwargs:
                 raise ValueError(
-                    "Muon optimizer now requires 'weight_decay' to be set explicitly in the training config")
+                    "Muon optimizer requires 'weight_decay' to be set explicitly in the training config")
             opt_kwargs.setdefault("rank", rank)
             opt_kwargs.setdefault("world_size", world_size)
 

@@ -1,123 +1,258 @@
-import time
+import os
+import json
 from dataclasses import dataclass
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 
 import torch
 import torch.distributed as dist
 from torch import nn
-from torch.accelerator import device_index
 
-from data.data_gen_stream import DistributedDataGenerator
 from training.optim import get_num_window_blocks
+from tools.master_logger import MasterLogger
 
 WINDOW_BLOCK_SIZE = 128
+logger = MasterLogger
+
 
 @dataclass
 class EvalResult:
     val_loss: float
     val_acc: Optional[float]
     epoch: Optional[int]
-    ema_dloss_per_token: Optional[float]
+    ema_dloss_per_token: float
 
 
 class Evaluator:
+    """
+    Generic evaluator that works with any data generator yielding (inputs, targets).
+
+    - For pretraining: typically used with DistributedDataGenerator (1D token streams).
+    - For Task SFT: typically used with TaskDataGenerator (instruction/response sequences).
+
+    The 'total_tokens' argument to eval() is interpreted as a *global* token
+    budget for this evaluation call. The evaluator will consume enough batches
+    so that steps * world_batch_tokens ~= total_tokens (integer division).
+    """
+
     def __init__(
         self,
-        *,
-        data_generator: DistributedDataGenerator,
-        distributed_enabled: bool | None = None,
-        world_size: int | None = None,
-        rank: int | None = None,
-        train_attention_window_len: int,
-    ) -> None:
-        global WINDOW_BLOCK_SIZE
+        data_generator: Any,
+        distributed_enabled: bool,
+        rank: int,
+        attn_window_len: int,
+        val_type: str = "pretrain", # "pretrain" or "task"
+        log_samples: bool = False,
+        sample_log_path: Optional[str] = None,
+        tokenizer_name: str = "gpt2",
+    ):
         self._ddg = data_generator
-        self._use_dist = bool(distributed_enabled) if distributed_enabled is not None else dist.is_available() and dist.is_initialized()
+        self._distributed_enabled = bool(distributed_enabled)
         self._rank = int(rank or 0)
-        self._world_size = int(world_size or 1)
-        self._tawt = int(train_attention_window_len)
-        self._wbs = WINDOW_BLOCK_SIZE
-        # Track EMA of dloss/token between eval calls
-        self._last_val_loss: Optional[float] = None
-        self._last_tokens_seen: int = 0
-        self._ema_dloss_per_token: Optional[float] = None
+        self._val_type = val_type
+        self._attn_window_len = attn_window_len
 
+        # Approximate global tokens processed per eval step
+        self._world_batch_tokens: Optional[int] = None
+
+        # Per-run bookkeeping
+        self._last_val_loss: Optional[float] = None
+        self._ema_dloss_per_token: Optional[float] = None
+        self._last_tokens_seen: int = 0
+
+        # Optional per-sample logging of eval losses + text
+        env_log = os.environ.get("EVAL_LOG_SAMPLES", "0").strip()
+        self._log_samples = bool(log_samples) or env_log in ("1", "true", "True")
+
+        # Determine sample log path (per rank)
+        env_path = os.environ.get("EVAL_SAMPLE_LOG_PATH", "").strip()
+        if sample_log_path:
+            base_path = sample_log_path
+        elif env_path:
+            base_path = env_path
+        else:
+            base_path = f"eval_samples_rank{self._rank}.jsonl"
+
+        # Allow {rank} placeholder in the path
+        self._sample_log_path = base_path.format(rank=self._rank)
+
+        # Optional tokenizer for decoding tokens -> text
+        self._tokenizer = None
+        tok_name = tokenizer_name
+        if tok_name:
+            try:
+                from transformers import AutoTokenizer
+
+                self._tokenizer = AutoTokenizer.from_pretrained(tok_name, use_fast=True)
+                logger.debug(f"[eval] Loaded tokenizer '{tok_name}' for sample logging.")
+            except Exception as e:
+                logger.error(f"[eval] Failed to load tokenizer '{tok_name}' for sample logging: {e}")
+                self._tokenizer = None
+
+        if self._distributed_enabled and not dist.is_initialized():
+            raise RuntimeError(
+                "Evaluator: distributed_enabled=True but dist process group is not initialized"
+            )
+
+    @property
+    def world_batch_tokens(self) -> Optional[int]:
+        """
+        Approximate number of global tokens processed per eval step from the
+        most recent eval() call.
+        """
+        return self._world_batch_tokens
 
     def reset_generator(self) -> None:
         """
-        Resets the internal DistributedDataGenerator so that it generates data from the beginning.
+        Reset the underlying data generator, if it exposes a 'reset' method.
         """
-        # If the generator exposes a reset() method, call it; otherwise, reinitialize internal state.
-        if hasattr(self._ddg, "reset"):
-            self._ddg.reset()
+        reset = getattr(self._ddg, "reset", None)
+        if callable(reset):
+            reset()
+
+    def _compute_world_batch_tokens(self, inputs: torch.Tensor) -> int:
+        """
+        Compute approximate global tokens per eval step from the local batch.
+        """
+        local_tokens = int(inputs.numel())
+        if self._distributed_enabled:
+            world_size = dist.get_world_size()
+        else:
+            world_size = 1
+        return local_tokens * world_size
+
+    def _log_sample(
+        self,
+        step_idx: int,
+        loss_tensor: torch.Tensor,
+        inputs: torch.Tensor,
+        targets: torch.Tensor,
+    ) -> None:
+        """
+        Write a single eval sample record to the sample log file as JSONL.
+        Includes loss, shapes, and decoded text (if tokenizer set).
+        """
+        if not self._log_samples:
             return
-        # Fallback: best-effort reset to start of current file order
-        import itertools
-        self._ddg._file_iter = itertools.cycle(self._ddg.files)  # type: ignore[attr-defined]
-        self._ddg._current_file = next(self._ddg._file_iter)  # type: ignore[attr-defined]
-        from data.data_gen_stream import _load_data_shard  # type: ignore
-        self._ddg._tokens = _load_data_shard(self._ddg._current_file)  # type: ignore[attr-defined]
-        self._ddg._pos = 0  # type: ignore[attr-defined]
-        # Also reset internal counters used for ema calc
-        self._last_tokens_seen = 0
 
-    def eval(self,*, model: nn.Module, total_tokens: int) -> Dict[str, Optional[float]]:
+        loss_scalar = float(loss_tensor.detach().item())
+        tokens_cpu = inputs.detach().to("cpu")
+
+        # Handle 1D vs 2D shaped inputs (batch_size may be 1)
+        if tokens_cpu.dim() == 2:
+            # assume shape (B, T), log the first row
+            tok_ids = tokens_cpu[0].tolist()
+        else:
+            tok_ids = tokens_cpu.tolist()
+
+        text = None
+        if self._tokenizer is not None:
+            try:
+                text = self._tokenizer.decode(tok_ids, skip_special_tokens=False)
+            except Exception as e:
+                logger.error(f"[eval] Token decode failed on rank={self._rank}, step={step_idx}: {e}")
+                text = None
+
+        record = {
+            "rank": self._rank,
+            "step": step_idx,
+            "loss": loss_scalar,
+            "inputs_shape_padded": list(inputs.shape),
+            "targets_shape_padded": list(targets.shape),
+            "text": text,
+        }
+
+        try:
+            with open(self._sample_log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except Exception as e:
+            logger.error(
+                f"[eval] Failed to write sample log on rank={self._rank}, step={step_idx} "
+                f"to '{self._sample_log_path}': {e}"
+            )
+
+    def eval(self, model: nn.Module, total_tokens: int, schedule: float) -> Dict[str, float]:
         """
-        Evaluate the model on validation data.
+        Run evaluation on approximately 'total_tokens' global tokens.
 
-        Args:
-            model: the model to evaluate. Must be in eval() mode, otherwise raises an error.
-            total_tokens: the total number of tokens globally over which to evaluate.
-        Returns:
-            dict with keys: val_loss, val_acc, epoch, ema_dloss_per_token
+        The underlying generator is assumed to yield (inputs, targets) pairs
+        that are directly consumable by the model, as in training.
+
+        Returns a dict with:
+            - 'val_loss': average loss over eval steps
+            - 'val_acc': always None (placeholder for compatibility)
+            - 'epoch': always None (no epoch tracking)
+            - 'ema_dloss_per_token': exponential moving average of d(loss)/d(token)
         """
-        with torch.no_grad():
-            if model.training:
-                raise RuntimeError("Evaluator.eval() requires model.eval() mode; got training mode.")
+        if total_tokens <= 0:
+            raise ValueError("Evaluator.eval: total_tokens must be > 0")
 
-            # Determine steps per rank
-            world_batch_size = int(self._ddg.batch_size)
-            if total_tokens % world_batch_size != 0:
-                raise ValueError(f"total_tokens ({total_tokens}) must be divisible by world_batch_size ({world_batch_size})")
-            steps = total_tokens // world_batch_size
+        device = next(model.parameters()).device
+        model_was_training = model.training
+        model.eval()
 
-            if self._use_dist:
-                dist.barrier()
+        # First batch defines the approximate world-batch token span
+        inputs, targets = next(self._ddg)
+        self._world_batch_tokens = self._compute_world_batch_tokens(inputs)
+        world_batch_tokens = self._world_batch_tokens
 
-            t0 = time.perf_counter()
-            device = next(model.parameters()).device
-            loss_acc = torch.zeros((), device=device, dtype=torch.float32)
-            for i in range(steps):
-                inputs, targets = next(self._ddg)
-                # bugfix: drop any partial tail across both tensors
-                n_in = len(inputs)
-                n_tg = len(targets)
-                n = min(n_in, n_tg)
-                cut = n - (n % self._wbs)
-                if cut and n_in != cut:
-                    inputs = inputs[:cut]
-                if cut and n_tg != cut:
-                    targets = targets[:cut]
-                # Match training eval: use window schedule with s=1.0 (full windows) for stability
+        # Number of eval steps based on target global tokens
+        # (integer division: we may use slightly fewer tokens than requested)
+        steps = max(1, total_tokens // world_batch_tokens)
+
+        loss_acc = torch.zeros((), device=device, dtype=torch.float32)
+
+        step_idx = 0  # local step index within this eval() call
+
+        def run_step(x: torch.Tensor, y: torch.Tensor) -> None:
+            nonlocal loss_acc, step_idx
+
+            with torch.no_grad():
                 with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
-                    loss_acc = loss_acc + model(inputs, get_num_window_blocks(1.0, attention_window_len=self._tawt, window_block_size=self._wbs), targets)
-            loss_acc = loss_acc / steps
+                    n_blocks = get_num_window_blocks(schedule=schedule,
+                                                     attention_window_len=self._attn_window_len,
+                                                     window_block_size=WINDOW_BLOCK_SIZE)
+                    loss = model(x, n_blocks, y) if self._val_type == 'pretraining' else model(x, n_blocks, y, loss_chunks=1)
 
-            if self._use_dist:
-                dist.all_reduce(loss_acc, op=dist.ReduceOp.AVG)
+            # Optional per-sample debug logging
+            self._log_sample(step_idx, loss, x, y)
 
-            cur_val = float(loss_acc.item())
-            tokens_since_last = total_tokens
-            if self._last_val_loss is not None and tokens_since_last > 0:
-                dpt = (cur_val - self._last_val_loss) / tokens_since_last
-                self._ema_dloss_per_token = dpt if self._ema_dloss_per_token is None else 0.7 * self._ema_dloss_per_token + 0.3 * dpt
-            self._last_val_loss = cur_val
-            self._last_tokens_seen += tokens_since_last
+            loss_acc += loss.detach()
+            step_idx += 1
 
-            # We don't track real epoch progression here; return None
-            return {
-                "val_loss": cur_val,
-                "val_acc": None,
-                "epoch": None,
-                "ema_dloss_per_token": self._ema_dloss_per_token if self._ema_dloss_per_token is not None else float("nan"),
-            }
+        # Consume the first batch
+        run_step(inputs, targets)
+
+        # Remaining steps
+        for _ in range(steps - 1):
+            inputs, targets = next(self._ddg)
+            run_step(inputs, targets)
+
+        # Average across ranks
+        if self._distributed_enabled:
+            dist.all_reduce(loss_acc, op=dist.ReduceOp.AVG)
+
+        cur_val = float(loss_acc.item() / steps)
+
+        # Update EMA of d(loss)/d(token) based on requested token budget
+        tokens_since_last = total_tokens
+        if self._last_val_loss is not None and tokens_since_last > 0:
+            dpt = (cur_val - self._last_val_loss) / tokens_since_last
+            if self._ema_dloss_per_token is None:
+                self._ema_dloss_per_token = dpt
+            else:
+                self._ema_dloss_per_token = 0.7 * self._ema_dloss_per_token + 0.3 * dpt
+
+        self._last_val_loss = cur_val
+        self._last_tokens_seen += tokens_since_last
+
+        if model_was_training:
+            model.train()
+
+        return {
+            "val_loss": cur_val,
+            "val_acc": None,
+            "epoch": None,
+            "ema_dloss_per_token": self._ema_dloss_per_token
+            if self._ema_dloss_per_token is not None
+            else float("nan"),
+        }

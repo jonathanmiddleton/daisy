@@ -26,14 +26,14 @@ logger = logging.getLogger(__name__)
 # Command line interface
 parser = argparse.ArgumentParser(description="Generate text with a GPT model from a checkpoint.")
 parser.add_argument("checkpoint", type=str, help="Path to model checkpoint (.pt)")
-parser.add_argument("--max_tokens", type=int, default=256, help="Number of new tokens to generate")
-parser.add_argument("-rp", "--repetition_penalty", type=float, default=1.25, help="Repetition penalty")
-parser.add_argument("-t", "--temperature", type=float, default=0.7, help="Sampling temperature")
+parser.add_argument("--max_tokens", type=int, default=128, help="Number of new tokens to generate")
+parser.add_argument("-rp", "--repetition_penalty", type=float, default=1.3, help="Repetition penalty")
+parser.add_argument("-t", "--temperature", type=float, default=0.4, help="Sampling temperature (default: 0.0 if base, 0.4 otherwise)")
 parser.add_argument("--top_k", type=int, default=100, help="Top-k sampling")
 parser.add_argument("--top_p", type=float, default=0.95, help="Top-p sampling")
 parser.add_argument("-s", "--seed", type=int, default=1337, help="Random seed for deterministic sampling")
-parser.add_argument("--base", type=bool, default=False, help="Flag for base sampling")
-parser.add_argument("-p", "--prompt", type=str, default="Write a short story about a child playing with a ball.", help="Optional one-shot prompt")
+parser.add_argument("--base", action="store_true", help="Flag for base sampling")
+parser.add_argument("-p", "--prompt", type=str)
 parser.add_argument(
     "-d",
     "--device",
@@ -62,6 +62,10 @@ decode = lambda l: enc.decode(l)
 
 use_instruct = not cli.base
 
+prompt = "Albert Einstein (14 March 1879 – 18 April 1955) was a German-born" if not use_instruct and cli.prompt is None else None
+
+effective_temperature = cli.temperature if use_instruct else 0.0
+
 # for the instruction tuned checkpoint the prompt should follow this format
 '''
 ### Instruction:
@@ -76,7 +80,7 @@ gen = Generator(
     window=int(hparams['train_attention_window_len']),
     seed=cli.seed,
     eos_token_id=hparams['eos_token_id'],
-    temperature=cli.temperature,
+    temperature=effective_temperature,
     top_k=cli.top_k,
     top_p=cli.top_p,
     repetition_penalty=cli.repetition_penalty,
@@ -182,8 +186,8 @@ if cli.chat:
     sys.exit(0)
 else:
     # Single-shot sample
-    print(f"Prompt: {cli.prompt}\n")
-    prompt = template.format(prompt=cli.prompt)
+    print(f"Prompt: {prompt}\n")
+    prompt = template.format(prompt=prompt)
     start_ids = encode(prompt)
     with torch.inference_mode():
         X = tensor(start_ids, dtype=torch.long, device=device)

@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 
 import torch
 from torch import nn, Tensor
@@ -8,9 +9,9 @@ from models.daisy.functional import norm, init_linear
 
 WINDOW_BLOCK_SIZE = 128
 
-def is_flex_available(enable_for_cpu: bool = False):
+def is_flex_available(enable_for_cpu: bool = False, dynamic_shapes: bool = False):
     # FlexAttention is supported only on cuda (limited on CPU)
-    return torch.cuda.is_available() or enable_for_cpu
+    return (not dynamic_shapes) and (torch.cuda.is_available() or enable_for_cpu)
 
 
 def _apply_rope(x_BTHD, cos, sin):
@@ -71,12 +72,13 @@ class Rotary(nn.Module):
 
 
 class CausalSelfAttention(nn.Module):
-    def __init__(self, dim: int, num_heads: int, max_seq_len: int, head_dim): #TODO automatically extend Rotary cache to avoid need for max_seq_len param
+    def __init__(self, dim: int, num_heads: int, max_seq_len: int, head_dim, dynamic_shapes: bool = False): #TODO automatically extend Rotary cache to avoid need for max_seq_len param
         super().__init__()
         torch._assert(dim % num_heads == 0, "dim must be divisible by num_heads")
         self.num_heads = num_heads
         self.head_dim: int = head_dim
         self.m_dim = dim
+        self.dynamic_shapes = dynamic_shapes
         # merged QKV weights: suggested by many, implemented by @fernbear.bsky.social, and further improved by @YouJiacheng
         # https://x.com/hi_tysam/status/1879699187107033311
         self.qkvo_w = nn.Parameter(init_linear(torch.empty(4, self.m_dim, self.m_dim)).bfloat16())
@@ -89,7 +91,7 @@ class CausalSelfAttention(nn.Module):
         self.last_q = None
         self.last_k = None
 
-        if is_flex_available():
+        if is_flex_available(dynamic_shapes=self.dynamic_shapes): # dynamic shapes fail because of implied constraints within BlockMask
             self.forward = self.forward_flex
         else:
             self.forward = self.forward_sdpa
@@ -129,21 +131,22 @@ class CausalSelfAttention(nn.Module):
         v_ = v.transpose(1, 2)
         return q_, k_, v_
 
-    def _sdpa_common(self, x: torch.Tensor, ve: torch.Tensor, sa_lambdas: torch.Tensor):
+    def _sdpa_common(self, x: torch.Tensor, ve: torch.Tensor, sa_lambdas: torch.Tensor, attn_mask: Optional[Tensor] = None):
         B, T = x.size(0), x.size(1)
         q_, k_, v_ = self._qkv_common(x, ve, sa_lambdas)
-        y = torch.nn.functional.scaled_dot_product_attention(q_, k_, v_, is_causal=True, scale=self.attn_scale)
+        if attn_mask is not None:
+            y = torch.nn.functional.scaled_dot_product_attention(q_, k_, v_, is_causal=False, attn_mask=attn_mask, scale=self.attn_scale)
+        else:
+            y = torch.nn.functional.scaled_dot_product_attention(q_, k_, v_, is_causal=True, scale=self.attn_scale)
         y = y.transpose(1, 2).contiguous().view(B, T, self.m_dim)
         y = torch.nn.functional.linear(y, self.qkvo_w[3])
         return y, k_.transpose(1, 2), v_.transpose(1, 2), q_.transpose(1, 2)
 
-    def forward_sdpa(self, x: torch.Tensor, ve: torch.Tensor, sa_lambdas: torch.Tensor, attn_mask: Tensor = None, block_mask: BlockMask = None):
-        assert block_mask is None, "BlockMask is not supported for SDPA"
-        # attn_mask: for future document-causal masking
-        y, _, _, _ = self._sdpa_common(x, ve, sa_lambdas)
+    def forward_sdpa(self, x: torch.Tensor, ve: torch.Tensor, sa_lambdas: torch.Tensor, attn_mask: Tensor, block_mask: Optional[Tensor] = None):
+        y, _, _, _ = self._sdpa_common(x, ve, sa_lambdas, attn_mask=attn_mask)
         return y
 
-    def forward_flex(self, x: torch.Tensor, ve: torch.Tensor, sa_lambdas: torch.Tensor, block_mask: BlockMask):
+    def forward_flex(self, x: torch.Tensor, ve: torch.Tensor, sa_lambdas: torch.Tensor, block_mask: BlockMask, attn_mask: Tensor):
         B, T = x.size(0), x.size(1)
         q_, k_, v_ = self._qkv_common(x, ve, sa_lambdas)
         y = _flex_call(q_, k_, v_, block_mask=block_mask, scale=self.attn_scale)

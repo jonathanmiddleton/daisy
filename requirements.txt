@@ -7,7 +7,7 @@ seaborn
 matplotlib
 pandas
 # requires torch 2.10.0.dev to avoid graph breaks
-# pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu128  --upgrade
+# pip install  "torch==2.10.0.dev20251113+cu128" --pre --index-url https://download.pytorch.org/whl/nightly/cu128  --upgrade
 #torch
 datasets
 tiktoken

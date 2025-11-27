@@ -14,7 +14,7 @@ from training.optim import get_num_window_blocks
 
 
 # Utilities for group introspection ---------------------------------------------------------------
-
+#noinspection PyShadowingNames
 def _enumerate_param_groups(optimizers: Iterable[torch.optim.Optimizer]):
     """
     Yield tuples (opt_idx, group_idx, group_dict) for every param group across all optimizers.
@@ -32,7 +32,7 @@ def _group_key(oi: int, gi: int, g: Dict[str, Any]) -> str:
 
 
 # LR sweep ----------------------------------------------------------------------------------------
-
+#noinspection PyShadowingNames
 def lr_sweep(
     model: torch.nn.Module,
     optimizers: List[torch.optim.Optimizer] | torch.optim.Optimizer,
@@ -44,14 +44,22 @@ def lr_sweep(
     window_block_size: int = 128,
     # sweep setup
     num_scales: int = 200,
-    scale_min: float = 1e-2,
-    scale_max: float = 1e+2,
+    scale_min: float = 0.5,
+    scale_max: float = 5.0,
     steps_per_scale: int = 20,
     smooth: float = 0.85,  # EMA on loss (computed within each scale window)
     device: str = "cuda",
     accum_steps: int = 1,
     clip_norm: float | None = None,
-    blowup_pct: float = 0.30,  # early stop when EMA > (1+blowup_pct)*best
+    # blowup_pct: float = 0.30,  # early stop when EMA > (1+blowup_pct)*best
+    # scaling control
+    scaled_group_names: List[str] | None = None,
+    # optional Weights & Biases logging per-scale
+    wandb_project: str | None = None,
+    wandb_run_name: str | None = None,
+    wandb_log: bool = False,
+    # additional metadata to include in wandb.init config (e.g., full Hyperparameters dict)
+    wandb_extra_config: Dict[str, Any] | None = None,
 ):
     """
     Sweep a multiplicative LR scale between [scale_min, scale_max] across `num_scales` points.
@@ -101,14 +109,46 @@ def lr_sweep(
             "frozen": False,  # set below
         }
 
-    # In the refactored version, groups to sweep are determined upstream by how the optimizer is built
-    # (frozen groups are excluded from the optimizer via build_optimizers_from_cfg with frozen_groups).
+    # Determine which param groups to scale vs. keep fixed at their base LR
     all_keys = list(group_infos.keys())
+    # Build lookup from external name and internal key -> keys
+    name_to_keys: Dict[str, List[str]] = {}
+    for k, info in group_infos.items():
+        nm = info.get("name")
+        if isinstance(nm, str):
+            name_to_keys.setdefault(nm, []).append(k)
+        # also support addressing by internal key
+        name_to_keys.setdefault(k, []).append(k)
 
-    # Function to set LRs based on a scalar for all present (swept) groups
+    if scaled_group_names is None:
+        scaled_keys = set(all_keys)  # default: scale all
+        requested_names: List[str] = []
+    else:
+        requested_names = [str(n).strip() for n in scaled_group_names if str(n).strip()]
+        missing: List[str] = []
+        scaled_keys = set()
+        for nm in requested_names:
+            keys = name_to_keys.get(nm)
+            if not keys:
+                missing.append(nm)
+            else:
+                scaled_keys.update(keys)
+        if missing:
+            available = sorted([k for k in name_to_keys.keys()])
+            raise ValueError(
+                "Requested groups not found: " + ", ".join(missing) +
+                ". Available groups: " + ", ".join(available)
+            )
+        if not scaled_keys:
+            raise ValueError("No valid parameter groups selected to scale.")
+
+    # Function to set LRs based on a scalar for scaled groups; keep others at base LR
+    # noinspection PyShadowingNames
     def set_lrs(scalar: float):
-        for _, _, g in _enumerate_param_groups(optimizers):
-            g["lr"] = float(g.get("base_lr", 1e-3)) * float(scalar)
+        for oi2, gi2, g in _enumerate_param_groups(optimizers):
+            k2 = _group_key(oi2, gi2, g)
+            base = float(g.get("base_lr", 1e-3))
+            g["lr"] = base * float(scalar) if k2 in scaled_keys else base
 
     # Initialize sweep (compute geometric positions for scales)
     def _scale_at(i: int) -> float:
@@ -145,15 +185,16 @@ def lr_sweep(
     t0 = time.time()
     print(
         f"[lr_sweep] num_scales={num_scales}, scale_min={scale_min:.3e}, scale_max={scale_max:.3e}, "
-        f"steps_per_scale={steps_per_scale}, accum_steps={accum_steps}, smooth={smooth}, "
-        f"blowup_pct={blowup_pct*100:.1f}%, metric=EMA(delta_loss, debiased)",
+        f"steps_per_scale={steps_per_scale}, accum_steps={accum_steps}, smooth={smooth},",
+        # f"blowup_pct={blowup_pct*100:.1f}%, metric=EMA(delta_loss, debiased)",
         flush=True,
     )
     print("[lr_sweep] Groups:", flush=True)
     for key in all_keys:
         info = group_infos[key]
         name = info.get("name") or key
-        print(f"  - {name}: base_lr={info['base_lr']:.3e}", flush=True)
+        tag = "[scaled]" if key in scaled_keys else "[fixed]"
+        print(f"  - {name}: base_lr={info['base_lr']:.3e} {tag}", flush=True)
 
     print_every = max(1, num_scales // 50) if num_scales else 1
 
@@ -172,6 +213,63 @@ def lr_sweep(
     # Sweep loop over scales; reset model/optimizer/data at each new scale
     for i in range(num_scales):
         scalar = _scale_at(i)
+        # Optional: start a fresh wandb run for this scale
+        _wb = None
+        _wb_run = None
+        _wb_enabled = bool(wandb_log) and bool(wandb_project)
+        _wb_name_base = (wandb_run_name or "lr-sweep").strip()
+        if _wb_enabled:
+            try:
+                import wandb as _wb  # type: ignore
+                # Assemble wandb config with sweep settings, model info, and optional hyperparameters
+                try:
+                    total_params = int(sum(p.numel() for p in model.parameters()))
+                except Exception:
+                    total_params = None
+                try:
+                    trainable_params = int(sum(p.numel() for p in model.parameters() if p.requires_grad))
+                except Exception:
+                    trainable_params = None
+                model_class = f"{model.__class__.__module__}.{model.__class__.__name__}"
+
+                _cfg: Dict[str, Any] = {
+                    # Sweep details
+                    "lr_sweep/scale": float(scalar),
+                    "lr_sweep/steps_per_scale": int(steps_per_scale),
+                    "lr_sweep/num_scales": int(num_scales),
+                    "lr_sweep/accum_steps": int(accum_steps),
+                    "lr_sweep/clip_norm": float(clip_norm) if clip_norm is not None else None,
+                    "lr_sweep/smooth": float(smooth),
+                    # "lr_sweep/blowup_pct": float(blowup_pct),
+                    "lr_sweep/scaled_groups": [group_infos[k].get("name") or k for k in (scaled_keys or [])],
+                    # Model info
+                    "model/class": model_class,
+                    "model/parameters_total": total_params,
+                    "model/parameters_trainable": trainable_params,
+                }
+                # If available, include model spec and full hyperparameters under a namespaced key
+                if isinstance(wandb_extra_config, dict) and wandb_extra_config:
+                    _cfg["hparams"] = wandb_extra_config
+                    if "model_spec" in wandb_extra_config:
+                        _cfg["model/spec"] = str(wandb_extra_config.get("model_spec"))
+
+                _wb_run = _wb.init(
+                    project=str(wandb_project),
+                    name=f"{_wb_name_base}-{float(scalar):.3e}",
+                    config=_cfg,
+                )
+            except Exception:
+                _wb = None
+                _wb_run = None
+                _wb_enabled = False
+
+        # local helper to satisfy API shape requested in issue
+        def log_wandb(d: dict):  # noqa: F811 - shadows train.log_wandb intentionally in this scope
+            if _wb_enabled and _wb_run is not None:
+                try:
+                    _wb.log(d)
+                except Exception:
+                    pass
         # Reset states for fair comparison
         model.load_state_dict(model_baseline, strict=True)
         optimizers = orig_optimizers
@@ -179,7 +277,7 @@ def lr_sweep(
             opt.load_state_dict(copy.deepcopy(opt_baselines[oi]))
         set_lrs(scalar)
         data_generator.reset()
-        # Prepare snapshots for swept groups (used to compute per-step param deltas)
+        # Prepare snapshots for tracked groups (all groups)
         swept_keys = list(all_keys)
         prev_snapshots: Dict[str, List[torch.Tensor]] = {}
         for oi2, gi2, g2 in _enumerate_param_groups(optimizers):
@@ -194,13 +292,16 @@ def lr_sweep(
         end_val = None
         early = False
         reason = ""
+        # Track tokens processed within this scale (global tokens across ranks per optimizer step)
+        tokens_processed = 0
+        tokens_per_optim_step = int(getattr(data_generator, "batch_size", 0)) * int(accum_steps)
 
         for step in range(steps_per_scale):
             for opt in optimizers:
                 opt.zero_grad(set_to_none=True)
 
             total = 0.0
-            for _ in range(accum_steps):
+            for i in range(accum_steps):
                 train, target =  next(data_generator)
                 loss = model(
                     input_seq=train,
@@ -286,6 +387,15 @@ def lr_sweep(
                 )
 
             val = total / accum_steps
+            # advance token counter for this optimizer step (after GA)
+            if tokens_per_optim_step:
+                tokens_processed += tokens_per_optim_step
+            # per-iteration logging to wandb (if enabled)
+            log_wandb({
+                "train/loss": float(val),
+                "tokens": int(tokens_processed),
+                "lr_scale": float(scalar),
+            })
             # capture start and latest values for improvement metric
             if start_val is None:
                 start_val = val
@@ -309,15 +419,10 @@ def lr_sweep(
                     early = True
                     reason = "non-finite EMA(delta)"
                     break
-                # if we have a strong degradation (negative improvement), bail
-                if step > 4 and ema_debiased < 0:
-                    early = True
-                    reason = "EMA(delta) negative (loss increasing)"
-                    break
-                if math.isfinite(global_best) and step > 4 and ema_debiased < (1.0 - blowup_pct) * global_best:
-                    early = True
-                    reason = "EMA(delta) dropped below blowup threshold vs global best"
-                    break
+                # if math.isfinite(global_best) and step > 4 and ema_debiased < (1.0 - blowup_pct) * global_best:
+                #     early = True
+                #     reason = "EMA(delta) dropped below blowup threshold vs global best"
+                #     break
             prev_val = val
 
         # record results for this scale (debiased EMA and total improvement)
@@ -338,18 +443,34 @@ def lr_sweep(
         done = i + 1
         pct = 100.0 * done / max(1, num_scales)
         eta_s = (elapsed / max(1e-9, done)) * max(0, num_scales - done)
-        eff_lrs_map = { (group_infos[k].get("name") or k): (group_infos[k]["base_lr"] * scalar) for k in all_keys }
+        eff_lrs_map = {
+            (group_infos[k].get("name") or k): ((group_infos[k]["base_lr"] * scalar) if k in scaled_keys else group_infos[k]["base_lr"])
+            for k in all_keys
+        }
         eff_lrs_str = ", ".join(f"{n}={v:.3e}" for n, v in eff_lrs_map.items()) if eff_lrs_map else "none"
+        if early:
+            print(
+                f"[lr_sweep] {done}/{num_scales} ({pct:.1f}%) ema_delta={ema_out:.6f} improvement={improvement:.6f} early={early} reason={reason} eff_lrs=[{eff_lrs_str}] scale={scalar:.3e} eta={eta_s:.1f}s",
+            )
         print(
-            f"[lr_sweep] {done}/{num_scales} ({pct:.1f}%) ema_delta={ema_out:.6f} improvement={improvement:.6f} eff_lrs=[{eff_lrs_str}] scale={scalar:.3e} early={early} eta={eta_s:.1f}s",
+            f"[lr_sweep] {done}/{num_scales} ({pct:.1f}%) ema_delta={ema_out:.6f} improvement={improvement:.6f} eff_lrs=[{eff_lrs_str}] scale={scalar:.3e} eta={eta_s:.1f}s",
             flush=True,
         )
+        # Finish wandb run for this scale
+        if _wb_enabled and _wb is not None:
+            try:
+                _wb.finish()
+            except Exception:
+                pass
 
     # summary print
     if losses:
         i_max = max(range(len(losses)), key=lambda i: losses[i])
         best_scalar = lrs_scalars[i_max]
-        best_eff_lrs_map = { (group_infos[k].get("name") or k): (group_infos[k]["base_lr"] * best_scalar) for k in all_keys }
+        best_eff_lrs_map = {
+            (group_infos[k].get("name") or k): ((group_infos[k]["base_lr"] * best_scalar) if k in scaled_keys else group_infos[k]["base_lr"])
+            for k in all_keys
+        }
         eff_best_str = ", ".join(f"{n}={v:.3e}" for n, v in best_eff_lrs_map.items()) if best_eff_lrs_map else "none"
         print(
             f"[lr_sweep] collected {len(losses)} points; max EMA(delta) at step {i_max+1} ema_delta={losses[i_max]:.6f} eff_lrs=[{eff_best_str}] scale={best_scalar:.3e}",
@@ -365,44 +486,41 @@ def lr_sweep(
         "scale_min": float(scale_min),
         "scale_max": float(scale_max),
         "metric": "ema_delta_loss_debiased",
+        "scaled_keys": list(scaled_keys),
+        "scaled_names": requested_names,
     }
     return lrs_scalars, losses, improvements, meta
 
 
 if __name__ == "__main__":
-    from models import get_model_class
+    from models import get_model_class, model_from_spec
     from training.hparams import load_hparams_from_yaml
+    from dataclasses import asdict
     import os
 
     device = "cuda"
     parser = ArgumentParser("Sweep learning rate scales across optimizer param groups")
     parser.add_argument("--config", type=str, required=True, help="Path to YAML training config.")
-    parser.add_argument("--num_scales", type=int, default=200)
-    parser.add_argument("--steps_per_scale", type=int, default=20)
-    parser.add_argument("--scale_min", type=float, default=None, help="Multiplicative LR scale min (default 1e-2)")
-    parser.add_argument("--scale_max", type=float, default=None, help="Multiplicative LR scale max (default 1e+2)")
-    parser.add_argument("--accum_steps", type=int, default=1)
+    parser.add_argument("--num_scales", type=int, default=10)
+    parser.add_argument("--steps_per_scale", type=int, default=200, help="Number of steps per scale (total steps = num_scales * steps_per_scale)")
+    parser.add_argument("--scale_min", type=float, default=0.5, help="Multiplicative LR scale min")
+    parser.add_argument("--scale_max", type=float, default=5.0, help="Multiplicative LR scale max")
+    parser.add_argument("--accum_steps", type=int, default=1, help="Grad accumulation steps")
     parser.add_argument("--clip_norm", type=float, default=None)
     parser.add_argument("--smooth", type=float, default=0.85)
-    parser.add_argument("--blowup_pct", type=float, default=0.30)
-    parser.add_argument("--group", "-g", required=True, help="Name of the parameter group to isolate (e.g., embed_params)")
+    # parser.add_argument("--blowup_pct", type=float, default=0.30)
+    parser.add_argument(
+        "--group",
+        "-g",
+        required=True,
+        help="Comma-separated list of parameter group names to scale (e.g., embed_params,attn_params). Unspecified groups keep their configured LR.",
+    )
     cli = parser.parse_args()
 
     from training.hparams import load_hparams_from_yaml
 
     params = load_hparams_from_yaml(cli.config)
-    Model = get_model_class(params.model_class)
-    model = Model(
-        vocab_size=params.vocab_size,
-        num_layers=params.num_layers,
-        num_heads=params.num_heads,
-        model_dim=params.model_dim,
-        max_seq_len=int(getattr(params, 'max_seq_len', max(params.training_sequence_length, params.val_seq_len))),
-        head_dim=params.head_dim,
-        window_block_size=params.window_block_size,
-        eos_token_id=params.eos_token_id,
-    )
-    model.to(device)
+    model = model_from_spec(params.model_spec, device=device)
     model = torch.compile(model, dynamic=False)
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     rank = int(os.environ.get("RANK", "0"))
@@ -414,11 +532,16 @@ if __name__ == "__main__":
         device=device,
     )
 
-    from training.optim import build_optimizers_from_cfg, get_referenced_groups
+    from training.optim import build_optimizers_from_cfg
 
-    frozens = [g for g in get_referenced_groups(params.optimizers) if g != cli.group]
+    # Parse comma-separated groups; apply scaling only to these groups. Others remain at config LR.
+    selected_groups = [g.strip() for g in str(cli.group).split(",") if g.strip()]
+    if not selected_groups:
+        raise SystemExit("--group must specify at least one parameter group name")
+
+    # Build optimizers with ALL groups; do not freeze unspecified groups
     optimizers = build_optimizers_from_cfg(
-        cfg_list=params.optimizers, model=model, rank=rank, world_size=world_size, frozen_groups=frozens
+        cfg_list=params.optimizers, model=model, rank=rank, world_size=world_size
     )
 
 
@@ -432,7 +555,7 @@ if __name__ == "__main__":
         optimizers=optimizers,
         data_generator=data_loader,
         train_attention_window_len=params.train_attention_window_len,
-        window_block_size=params.window_block_size,
+        window_block_size=128,
         num_scales=n_scales,
         scale_min=sc_min,
         scale_max=sc_max,
@@ -440,7 +563,11 @@ if __name__ == "__main__":
         accum_steps=cli.accum_steps,
         clip_norm=cli.clip_norm,
         smooth=cli.smooth,
-        blowup_pct=cli.blowup_pct,
+        scaled_group_names=selected_groups,
+        wandb_project=getattr(params, "wandb_project", "") or None,
+        wandb_run_name=getattr(params, "wandb_run_name", "") or None,
+        wandb_log=bool(getattr(params, "wandb_log", False)),
+        wandb_extra_config=asdict(params),
     )
 
     # Log JSON and print a table focused on effective LRs (scale reported secondarily)
@@ -448,12 +575,12 @@ if __name__ == "__main__":
     def _name_of(k: str) -> str:
         info = groups[k]
         return info.get("name") or k
-    swept_keys = list(groups.keys())
-    swept_names = [_name_of(k) for k in swept_keys]
+    scaled_keys = meta.get("scaled_keys", [])
+    swept_names = [_name_of(k) for k in scaled_keys]
 
     def _eff_lrs_for_scalar(s: float) -> Dict[str, float]:
-        # effective LRs for swept groups only
-        return { _name_of(k): float(groups[k]["base_lr"]) * float(s) for k in swept_keys }
+        # effective LRs for scaled groups only
+        return { _name_of(k): (float(groups[k]["base_lr"]) * float(s)) for k in scaled_keys }
 
     results = [
         {

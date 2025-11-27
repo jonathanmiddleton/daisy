@@ -56,63 +56,45 @@ def pick_value_embedding_layers(attn_layers, M=None):
     idx = [int(round(i * (K - 1) / (M - 1))) for i in range(M)]
     return [attn_layers[i] for i in sorted(set(idx))]
 
-
-def pick_attention_layers(total_layers, d_model=None, num_heads=None, attn_impl: str = 'standard'):
-    """
-    Sparse Attention Layer Selection
-
-    For non-degenerate cases:
-    - L: total number of layers (int >= 1)
-    - d_model: model width (optional)
-    - n_heads: number of attention heads (optional; constant across attention layers)
-    - d_head: per-head width; if d_model and n_heads are provided, d_head = d_model / n_heads; otherwise d_head = 64
-
-    1) Choose stride s (maximum gap between attention layers) from d_head:
-       s = clip(round(8 * sqrt(d_head / 64)), 4, 12)
-       Interpretation: if d_head = 64 then s ≈ 8. Wider heads allow slightly larger s,
-       but s is always clamped to [4, 12].
-
-    2) Target count K of attention layers:
-       K = min(L, max(ceil(L / s), 2 + ceil(log2(L))))
-       This ensures at least logarithmically many attention layers and bounds the
-       maximum gap between attention layers.
-
-    3) Index placement: pick K indices uniformly on [0, L-1] (inclusive), then deduplicate and sort:
-       for i in {0, 1, ..., K-1}:
-           idx_i = round(i * (L - 1) / (K - 1))
-       By construction, idx_0 = 0 and idx_{K-1} = L - 1.
-    """
-    if total_layers <= 0: return []
-    if total_layers == 1: return [0]
-    if total_layers == 2: return [0, 1]
-    if total_layers == 3: return [0, 2]
-    if total_layers == 4: return [0, 1, 3]
-    if total_layers == 5: return [0, 2, 4]
-    if total_layers == 6: return [0, 1, 3, 5]
-    d_head = (d_model // num_heads) if (d_model and num_heads) else 64
-    s = max(4, min(12, round(8 * (d_head / 64) ** 0.5)))
-    K = min(total_layers, max(ceil(total_layers / s), ceil(2 + log2(total_layers))))
-    idx = [int(round(i * (total_layers - 1) / (K - 1))) for i in range(K)]
-    idx_s = set(idx)
-    if attn_impl == 'kimi_linear':
-        # Ensure KimiLinearSelfAttention exists for every layer number divisible by 4
-        # Block.py: if layer_idx % 4 == 0: self.attn = KimiLinearSelfAttention(...)
-        # We guarantee attention in the first and last layers so we expect Kimi in
-        # the first and SDPA/Flex in the last.
-        idx_s = idx_s | set(list(range(0, total_layers, 4)))
-    return sorted(idx_s)
-
-def build_attn_mask(input_seq: Tensor, window_size: int):
+def build_attn_mask(input_seq: Tensor, window_size: int, eos_token_id: int):
     T = input_seq.size(-1)
     q = torch.arange(T, device=input_seq.device)[:, None]  # (T, 1)
     k = torch.arange(T, device=input_seq.device)[None, :]  # (1, T)
     d = q - k  # d[q, k] = q - k
 
+    docs = (input_seq == eos_token_id).cumsum(0)
+    docs_q = docs[:, None]
+    docs_k = docs[None, :]
+
     m = torch.zeros(T, T, device=input_seq.device, dtype=torch.float32)
     m[d < 0] = float("-inf")  # forbid future (k > q)
     m[d >= window_size] = float("-inf")  # forbid too-far past
+    m[docs_q != docs_k] = float("-inf")
     attn_mask = m[None, None, :, :]
     return attn_mask
+
+
+def pick_attention_layers(L, d_model=None, num_heads=None, attn_impl='standard', attn_density=0.75):
+    if L <= 0: return []
+    if L == 1: return [0]
+    if L == 2: return [0, 1]
+    if L == 3: return [0, 2]
+    if L == 4: return [0, 1, 3]
+    if L == 5: return [0, 2, 4]
+    if L == 6: return [0, 1, 3, 5]
+    if L == 16: return [0, 1, 2, 4, 5, 7, 8, 10, 11, 13, 14, 15] #backwards compatibility
+    d_head = (d_model // num_heads) if (d_model and num_heads) else 64
+    s = max(4, min(12, round(8 * (d_head / 64) ** 0.5)))
+    k_log = ceil(2 + log2(L))
+    k_ratio = ceil(attn_density * L)
+    k_stride = ceil(L / s)
+    K = min(L, max(k_log, k_ratio, k_stride))
+    idx = [round(i * (L - 1) / (K - 1)) for i in range(K)]
+    idx_s = set(map(int, idx))
+    if attn_impl == 'kimi_linear':
+        idx_s |= set(range(0, L, 4))
+    return sorted(idx_s)
+
 
 class DaisyCore(nn.Module):
     class AttnImplIDs:
@@ -129,9 +111,9 @@ class DaisyCore(nn.Module):
                 raise ValueError(f"Unknown attn_impl: {attn_impl}")
 
     def __init__(self, vocab_size: int, num_layers: int, num_heads: int, model_dim: int, max_seq_len: int,
-                 head_dim: int, window_size: int = 1024, eos_token_id: int | None = None, desc: dict | None = None,
+                 head_dim: int, window_size: int = 2048, eos_token_id: int | None = None, desc: dict | None = None,
                  value_embeddings: bool = True, tied_embeddings: bool = False, attn_all_layers: bool = False,
-                 attn_impl: str = 'standard'):
+                 attn_impl: str = 'standard', dynamic_shapes: bool = False):
         super().__init__()
         if eos_token_id is None:
             raise ValueError("eos_token_id is required.")
@@ -156,6 +138,7 @@ class DaisyCore(nn.Module):
             return {i: j for i, j in m.items() if 0 <= j < i < L}
 
         self.attn_impl_ids = DaisyCore.AttnImplIDs
+        self.dynamic_shapes = dynamic_shapes
 
         self.skip_map = _get_skip_map(num_layers)
         self.eos_token_id = int(eos_token_id)
@@ -169,7 +152,7 @@ class DaisyCore(nn.Module):
 
         self.attn_impl_id = self.attn_impl_ids.get_attn_impl_id(attn_impl)
         self.blocks = nn.ModuleList(
-            [Block(model_dim, num_heads, max_seq_len, i, head_dim, i in self.attn_layers, attn_impl) for i in range(num_layers)])
+            [Block(model_dim, num_heads, max_seq_len, i, head_dim, i in self.attn_layers, attn_impl, dynamic_shapes=dynamic_shapes) for i in range(num_layers)])
         if tied_embeddings:
             nn.init.normal_(self.embed.weight, mean=0.0, std=0.02)
             self.lm_head_w = self.embed.weight
@@ -197,7 +180,7 @@ class DaisyCore(nn.Module):
     def create_blockmasks(self, input_seq: Tensor, sliding_window_num_blocks: Tensor, L: int):
         global WINDOW_BLOCK_SIZE
         BLOCK_SIZE = WINDOW_BLOCK_SIZE
-        torch._assert(len(input_seq) % BLOCK_SIZE == 0, "input_seq must be divisible by BLOCK_SIZE")
+        torch._assert(len(input_seq) % BLOCK_SIZE == 0, f"input_seq length {len(input_seq)} must be divisible by BLOCK_SIZE {BLOCK_SIZE}")
         device = input_seq.device
         docs = (input_seq == self.eos_token_id).cumsum(0)
 
@@ -247,8 +230,8 @@ class DaisyCore(nn.Module):
         ve = [norm(value_embed(input_seq)) for value_embed in self.value_embeds]
         return ve
 
-    def forward(self, input_seq: Tensor, sliding_window_num_blocks: Tensor, target_seq: Tensor = None):
-        assert input_seq.ndim == 1
+    def forward(self, input_seq: Tensor, sliding_window_num_blocks: Tensor, target_seq: Tensor = None, loss_chunks: int = 4, output_logits: bool = False):
+        torch._assert(input_seq.ndim == 1, "input_seq must be 1D")
         L = len(self.blocks)
 
         ve = self.compute_value_embeddings(input_seq)
@@ -262,15 +245,19 @@ class DaisyCore(nn.Module):
 
         skip_connections = []
 
-        if input_seq.device.type == "cuda": # we assume CUDA implies FlexAttention
+        if input_seq.device.type == "cuda" and not self.dynamic_shapes: #  FlexAttention if supported unless dynamic_shape support is required
             block_masks = self.create_blockmasks(input_seq, sliding_window_num_blocks, L=L)
+            attn_mask = None
         else:
             block_masks = [None] * L
+            # building an attention mask for T>sqrt(2,147,483,647)==sqrt(INT_MAX) will fail
+            torch._assert(input_seq.numel() <= 46340, "For attention masks with SDPA, input_seq length must be less than sqrt(2^31) ~= 46340 tokens")
+            attn_mask = build_attn_mask(input_seq, self.window_size, self.eos_token_id)
 
         for i in range(L):
             if i in skip_map:
                 x = x + skip_weights[skip_map[i]] * skip_connections[skip_map[i]]
-            x = self.blocks[i](x, ve[i], x0, lambdas[i], sa_lambdas[i], block_mask=block_masks[i])
+            x = self.blocks[i](x, ve[i], x0, lambdas[i], sa_lambdas[i], block_mask=block_masks[i], attn_mask=attn_mask)
             skip_connections.append(x)
 
         x = norm(x)
@@ -279,12 +266,20 @@ class DaisyCore(nn.Module):
             loss = F.cross_entropy(15 * logits * torch.rsqrt(logits.square() + 225), target_seq)
             return loss
 
-        # eval, assuming 4xtrain_seq_len
-        loss = 0
-        for i in range(4):
-            logits: Tensor = F.linear(x.flatten(end_dim=1).chunk(4)[i].bfloat16(), self.lm_head_w.bfloat16()).float()
-            loss += F.cross_entropy(15 * logits * torch.rsqrt(logits.square() + 225), target_seq.chunk(4)[i]) / 4 # TODO enforce target_seq % 4 == 0
-        return loss
+        if output_logits:
+            logits: Tensor = F.linear(x.flatten(end_dim=1).bfloat16(), self.lm_head_w.bfloat16()).float()
+            return logits
+        else:
+            loss = 0
+            for i in range(loss_chunks):
+                torch._assert(input_seq.numel() % loss_chunks == 0,
+                              f"input_seq must be divisible by {loss_chunks} when not in training")
+                logits: Tensor = F.linear(x.flatten(end_dim=1).chunk(loss_chunks)[i].bfloat16(),
+                                          self.lm_head_w.bfloat16()).float()
+                logits = 15 * logits * torch.rsqrt(logits.square() + 225)
+                chunk = target_seq.chunk(loss_chunks)[i]
+                loss += F.cross_entropy(logits, chunk) / loss_chunks
+            return loss
 
     def step(self, token_id: Tensor, k_ctxs, v_ctxs, pos: int, window: int):
         assert token_id.ndim == 0
@@ -316,7 +311,7 @@ class DaisyCore(nn.Module):
         logits = F.linear(x.flatten(end_dim=1).bfloat16(), self.lm_head_w.bfloat16()).float()
         return logits, k_new_list, v_new_list
 
-    def prefill(self, input_seq: Tensor, window: Optional[int] = None, debug: bool = False): #TODO CUDA/Flex for prefill -> merge prefill/forward
+    def prefill(self, input_seq: Tensor, window: Optional[int] = None, debug: bool = False): #TODO   merge prefill/forward
         assert input_seq.ndim == 2
         B, T = input_seq.shape
         h = None

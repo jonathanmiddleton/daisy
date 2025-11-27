@@ -1,17 +1,17 @@
 # Logging
 wandb_log: true
-wandb_project: 'daisy'
+wandb_project: 'daisy-tasks'
 wandb_run_name: '420m'
 # Torch config
-torch.coordinate_descent_tuning: true
+torch.coordinate_descent_tuning: false
 # Pretraining configuration
 train_shards: "data/fineweb-edu/edu_fineweb_train_*.bin"
-target_tokens: 10_000_000_000
-cooldown_frac: 0.4
+target_tokens: 100_000_000
+cooldown_frac: 0.0
 learning_rate_schedule: linear_decay
-learning_rate_floor: 0.1
-training_sequence_length: 65536        #  N * 1024; must be divisible by window_block_size
-train_attention_window_len: 2304        # largest sliding attention window used during training; must be divisible by window_block_size
+learning_rate_floor: 0.3
+training_sequence_length: 131_072
+train_attention_window_len: 4_096
 # Optimizers configuration
 optimizers:
   - type: AdamW
@@ -32,19 +32,19 @@ optimizers:
     params:
       - group: hidden_matrix_params
         lr: 0.02
-full_windows: false
+full_windows: true
 # Gradient accumulation
-grad_acc_steps: 1 # assumes world_size=8
+grad_acc_steps: 1
 # Evaluations
 val_shards:
   - type: "fineweb-edu"
     path: "data/fineweb-edu/edu_fineweb_val_*.bin"
-val_loss_every_tokens:    262144000 # 524288000 = 500 steps
-val_seq_len: 262144       # 4 * 64 * 1024
-tot_val_tokens: 10485760  # 5 steps
+    target_tokens: 5_242_880
+    sequence_length: 8_192
+val_loss_every_tokens:     6_912_000
 # Checkpoints
-checkpoint_warmup_tokens:   209715200     # token warmup before checkpoints
-checkpoint_per_n_tokens:     1         # checkpoint interval by tokens
-save_checkpoint: true
+checkpoint_warmup_tokens:   0
+checkpoint_per_n_tokens:     0
+save_checkpoint: false
 # Model Definition
 model_spec: daisy_420m

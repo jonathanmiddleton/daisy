@@ -124,12 +124,12 @@ def peek_hparams(path: str, map_location: Any | None = None) -> Dict[str, Any]:
     return ckpt.hparams or {}
 
 
-def model_from_checkpoint(path: str, device: torch.device | str) -> tuple[Module, dict[str, Any]]:
+def model_from_checkpoint(path: str, device: torch.device | str, dynamic_shapes: bool = False) -> tuple[Module, dict[str, Any]]:
     ckpt = load_checkpoint(path, map_location=device)
     state_dict = ckpt.model
     hparams = ckpt.hparams
 
-    model = model_from_spec(hparams, device=device)
-    apply_model_state(model, state_dict, strict=False, assign=True)
+    model = model_from_spec(hparams['model_spec'], device=device, dynamic_shapes=dynamic_shapes)
+    apply_model_state(model, state_dict, strict=True, assign=True)
 
     return model, hparams

@@ -6,18 +6,12 @@ from huggingface_hub import hf_hub_download
 
 
 def create_overfit_sample( output_file: str, num_tokens: int = 1_000_000):
-    """
-    Create a smaller bin file with the specified number of tokens from an existing bin file with the Karpathy quasi-standard file format.
 
-    Args:
-        output_file: Path to the output bin file (e.g., "data/overfit/edu_fineweb_overfit_1M.bin")
-        num_tokens: Number of tokens to extract (default: 1M)
-    """
-    file_name = "edu_fineweb_train_000001.bin"
-    local_dir = os.path.join(os.path.dirname(__file__), 'fineweb-edu-overfit')
+    file_name = "dclm_baseline_train_000001.bin"
+    local_dir = os.path.join(os.path.dirname(__file__), 'dclm_baseline_overfit')
     def get(fname):
         if not os.path.exists(os.path.join(local_dir, fname)):
-            hf_hub_download(repo_id="karpathy/fineweb-edu-100B-gpt2-token-shards", filename=fname,
+            hf_hub_download(repo_id="JonathanMiddleton/dclm-baseline", filename=fname,
                             repo_type="dataset", local_dir=local_dir)
 
     get(file_name)
@@ -58,6 +52,6 @@ def create_overfit_sample( output_file: str, num_tokens: int = 1_000_000):
 
 if __name__ == "__main__":
     create_overfit_sample(
-        output_file="data/overfit/edu_fineweb_overfit_1M.bin",
+        output_file="data/overfit/dclm_baseline_overfit_1M.bin",
         num_tokens=1_000_000
     )

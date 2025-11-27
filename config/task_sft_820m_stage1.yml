@@ -1,0 +1,64 @@
+# Logging
+wandb_log: true
+wandb_project: 'daisy-820m'
+wandb_run_name: '820m-dclm-task'
+# SFT
+train_mode: "task"
+task_train_root: "data/instruct_tasks/"
+task_train_split: "train_stage_00"
+task_val_debug_log_samples: false # debug log, all ranks
+task_val_shards:
+  - type: "instruct-tasks"
+    path: "data/instruct_tasks/"
+    split: "val_stage_00"
+    target_tokens: 80_000
+val_shards:
+  - type: "dclm_baseline"
+    path: "data/dclm_baseline/dclm_baseline_val_000000.bin"
+    target_tokens: 6_553_600
+    sequence_length: 8192 #must be small enough to be computable via SDPA since SDPA is forced for Tasks
+
+# Run length: PER-RANK token budget
+target_tokens: 10_000_000
+val_loss_every_tokens: 500_000
+
+# Hard max example length
+train_attention_window_len: 8192
+training_sequence_length: 65536
+# Checkpoint
+init_checkpoint: ""
+# Torch config
+torch.coordinate_descent_tuning: false
+
+cooldown_frac: 1.0
+learning_rate_floor: 0.0
+learning_rate_schedule: linear_decay
+# Optimizers configuration
+optimizers:
+  - type: AdamW
+    betas: [0.9, 0.999]
+    eps: 1.0e-10
+    weight_decay: 0.01
+    fused: true
+    params:
+      - group: head_params
+        lr: 0.0003464
+      - group: embed_params
+        frozen: true
+      - group: scalar_params
+        frozen: true
+  - type: Muon
+    momentum: .95
+    weight_decay: 0.0
+    params:
+      - group: hidden_matrix_params
+        lr: 0.0004
+full_windows: true
+# Gradient accumulation
+grad_acc_steps: 1
+# Checkpoints
+checkpoint_warmup_tokens:   1     # token warmup before checkpoints
+checkpoint_per_n_tokens:  1         # checkpoint interval by tokens
+save_checkpoint: true
+# Model Definition
+model_spec: daisy_820m

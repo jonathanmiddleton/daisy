@@ -34,7 +34,7 @@ def get_model_class(model_class: str) -> Type[nn.Module]:
 
 
 
-def model_from_spec(spec_or_cfg: str | dict | ModelSpec | Any, device: str, overrides: dict = None) -> nn.Module:
+def model_from_spec(spec_or_cfg: str | dict | ModelSpec | Any, device: str, overrides: dict = None, dynamic_shapes: bool = False) -> nn.Module:
     # Normalize to ModelSpec for validation of architecture fields
     spec: ModelSpec
 
@@ -88,7 +88,8 @@ def model_from_spec(spec_or_cfg: str | dict | ModelSpec | Any, device: str, over
         value_embeddings=value_embeddings,
         tied_embeddings=tied_embeddings,
         attn_all_layers = attn_all_layers,
-        attn_impl=attn_impl
+        attn_impl=attn_impl,
+        dynamic_shapes = dynamic_shapes
     ).to(device)
     return model
 

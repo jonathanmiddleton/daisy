@@ -8,8 +8,10 @@ from .block import Block  # noqa: F401
 from .functional import norm, init_linear  # noqa: F401
 from .mlp import MLP  # noqa: F401
 from .attention_protocol import AttentionProtocol # noqa: F401
-from .attention_kimi import KimiLinearSelfAttention # noqa: F401
-
+try:
+    from .attention_kimi import KimiLinearSelfAttention # noqa: F401
+except ImportError:
+    pass
 
 __all__ = [
     "DaisyCore",

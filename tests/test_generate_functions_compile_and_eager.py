@@ -280,8 +280,11 @@ def test_sample_device_eager_vs_compiled_same():
     top_p = 0.85
     seed = 777
     manual_seed_all(seed)
+    r1 = torch.randint(0, V - 1, (B,), device=device, dtype=torch.long)
     eager = _sample(logits, temperature=temperature, top_k=top_k, top_p=top_p)
     manual_seed_all(seed)
+    r2 = torch.randint(0, V - 1, (B,), device=device, dtype=torch.long)
+    assert torch.equal(r1, r2)
     compiled = maybe_compile(_sample)(logits, temperature=temperature, top_k=top_k, top_p=top_p)
     assert torch.equal(eager, compiled)
 

@@ -1,0 +1,65 @@
+# Logging
+wandb_log: true
+wandb_project: 'daisy-650m'
+wandb_run_name: '650m-linear-pretrain'
+# Torch config
+torch.coordinate_descent_tuning: true
+# Pretraining configuration
+train_shards: "data/fineweb-edu/edu_fineweb_train_*.bin"
+target_tokens: 14_000_000_000
+cooldown_frac: 1
+learning_rate_schedule: cosine_decay
+learning_rate_floor: 0.1
+training_sequence_length: 16384        #  N * 1024; must be divisible by window_block_size
+train_attention_window_len: 3456        # largest sliding attention window used during training; must be divisible by window_block_size
+# Optimizers configuration
+optimizers:
+  - type: AdamW
+    betas: [0.9, 0.95]
+    eps: 1.0e-10
+    weight_decay: 0.0
+    fused: true
+    params:
+      - group: head_params
+        lr: 0.003464          # Adam hidden baseline
+      - group: embed_params
+        lr: 0.110848          # √d * head_params LR
+      - group: scalar_params
+        lr: 0.01299           # ~3.75x head; OK to keep
+      - group: hidden_scalar_params
+        lr: 0.015             # close to scalar_params; fine
+      - group: attn_time_constant_params
+        lr: 0.01125      # 0.5–1x hidden_scalar_params is a reasonable range
+#    params:
+#      - group: head_params
+#        lr: 0.003464
+#      - group: embed_params
+#        lr: 0.1732
+#      - group: scalar_params
+#        lr: 0.01299
+#      - group: hidden_scalar_params
+#        lr: 0.015
+#      - group: attn_time_constant_params
+#        lr: 0.015 #possibly .5-1x hidden_scalar_params
+  - type: Muon
+    momentum: 0.95
+    weight_decay: 0.0
+    params:
+      - group: hidden_matrix_params
+        lr: 0.02
+full_windows: false
+# Gradient accumulation
+grad_acc_steps: 1 # assumes world_size=8
+# Evaluations
+val_shards:
+  - type: "fineweb-edu"
+    path: "data/fineweb-edu/edu_fineweb_val_*.bin"
+    target_tokens: 10_485_760  # 5 steps
+    sequence_length: 262_144       # 4 * 64 * 1024
+val_loss_every_tokens:    262_144_000 # 524288000 = 500 steps
+# Checkpoints
+checkpoint_warmup_tokens:   2_621_440_000     # token warmup before checkpoints
+checkpoint_per_n_tokens:     1         # checkpoint interval by tokens
+save_checkpoint: true
+# Model Definition
+model_spec: daisy_650m_linear
