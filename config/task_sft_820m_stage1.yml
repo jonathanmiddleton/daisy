@@ -15,8 +15,8 @@ task_val_shards:
 val_shards:
   - type: "dclm_baseline"
     path: "data/dclm_baseline/dclm_baseline_val_000000.bin"
-    target_tokens: 1_474_560
-    sequence_length: 32768
+    target_tokens: 41_943_040
+    sequence_length: 131_072
 
 # Run length: PER-RANK token budget
 target_tokens: 1_000_000
