@@ -382,12 +382,9 @@ elif train_mode == "task":
             data_generator=_ddg,
             distributed_enabled=use_distributed,
             rank=rank,
-            training_sequence_length=args.training_sequence_length,
+            attn_window_len=args.train_attention_window_len,
             val_type='task',
             log_samples=getattr(args, "task_val_debug_log_samples", False),
-            mark_dynamic_dim = 0,
-            mark_dynamic_min = 1,
-            mark_dynamic_max = int(args.training_sequence_length)
         )
         _val_evals.append((_label, _eval, _tokens))
 
@@ -471,7 +468,7 @@ while progress.tokens_processed < progress.target_tokens:
             )
             _world_batch = _ev.world_batch_tokens or 0
             _steps = _target_tokens // _world_batch if _world_batch > 0 else 0
-            _out = _ev.eval(model=model, total_tokens=_target_tokens)
+            _out = _ev.eval(model=model, total_tokens=_target_tokens, schedule=progress.s)
             per_ds_results.append((_label, _out))
 
         # Canonical/primary val metrics use the first dataset

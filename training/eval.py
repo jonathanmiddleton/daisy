@@ -39,6 +39,7 @@ class Evaluator:
         data_generator: Any,
         distributed_enabled: bool,
         rank: int,
+        attn_window_len: int,
         val_type: str = "pretrain", # "pretrain" or "task"
         log_samples: bool = False,
         sample_log_path: Optional[str] = None,
@@ -48,6 +49,7 @@ class Evaluator:
         self._distributed_enabled = bool(distributed_enabled)
         self._rank = int(rank or 0)
         self._val_type = val_type
+        self._attn_window_len = attn_window_len
 
         # Approximate global tokens processed per eval step
         self._world_batch_tokens: Optional[int] = None
@@ -168,7 +170,7 @@ class Evaluator:
                 f"to '{self._sample_log_path}': {e}"
             )
 
-    def eval(self, model: nn.Module, total_tokens: int) -> Dict[str, float]:
+    def eval(self, model: nn.Module, total_tokens: int, schedule: float) -> Dict[str, float]:
         """
         Run evaluation on approximately 'total_tokens' global tokens.
 
@@ -206,7 +208,9 @@ class Evaluator:
 
             with torch.no_grad():
                 with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
-                    n_blocks = torch.tensor(1, dtype=torch.int32, device=device)
+                    n_blocks = get_num_window_blocks(schedule=schedule,
+                                                     attention_window_len=self._attn_window_len,
+                                                     window_block_size=WINDOW_BLOCK_SIZE)
                     loss = model(x, n_blocks, y) if self._val_type == 'pretraining' else model(x, n_blocks, y, loss_chunks=1)
 
             # Optional per-sample debug logging
