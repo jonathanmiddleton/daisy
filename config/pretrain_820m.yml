@@ -10,7 +10,7 @@ target_tokens: 18_000_000_000
 cooldown_frac: 1
 learning_rate_schedule: cosine_decay
 learning_rate_floor: 0.1
-training_sequence_length: 65536
+training_sequence_length: 51200
 train_attention_window_len: 8192
 # Optimizers configuration
 optimizers:
@@ -28,7 +28,7 @@ optimizers:
         lr: 0.01299
   - type: Muon
     momentum: 0.95
-    weight_decay: 0.0
+    weight_decay: 0.01
     params:
       - group: hidden_matrix_params
         lr: 0.025

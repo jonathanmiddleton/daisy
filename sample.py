@@ -33,7 +33,7 @@ parser.add_argument("--top_k", type=int, default=100, help="Top-k sampling")
 parser.add_argument("--top_p", type=float, default=0.95, help="Top-p sampling")
 parser.add_argument("-s", "--seed", type=int, default=1337, help="Random seed for deterministic sampling")
 parser.add_argument("--base", action="store_true", help="Flag for base sampling")
-parser.add_argument("-p", "--prompt", type=str, default="Write a short story about a child playing with a ball.", help="Optional one-shot prompt")
+parser.add_argument("-p", "--prompt", type=str)
 parser.add_argument(
     "-d",
     "--device",
@@ -61,6 +61,9 @@ encode = lambda s: enc.encode(s, allowed_special={"<|endoftext|>"})
 decode = lambda l: enc.decode(l)
 
 use_instruct = not cli.base
+
+prompt = "Albert Einstein (14 March 1879 – 18 April 1955) was a German-born" if not use_instruct and cli.prompt is None else None
+
 effective_temperature = cli.temperature if use_instruct else 0.0
 
 # for the instruction tuned checkpoint the prompt should follow this format
@@ -183,8 +186,8 @@ if cli.chat:
     sys.exit(0)
 else:
     # Single-shot sample
-    print(f"Prompt: {cli.prompt}\n")
-    prompt = template.format(prompt=cli.prompt)
+    print(f"Prompt: {prompt}\n")
+    prompt = template.format(prompt=prompt)
     start_ids = encode(prompt)
     with torch.inference_mode():
         X = tensor(start_ids, dtype=torch.long, device=device)
