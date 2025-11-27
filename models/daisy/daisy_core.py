@@ -230,7 +230,22 @@ class DaisyCore(nn.Module):
         ve = [norm(value_embed(input_seq)) for value_embed in self.value_embeds]
         return ve
 
-    def forward(self, input_seq: Tensor, sliding_window_num_blocks: Tensor, target_seq: Tensor = None, loss_chunks: int = 4, output_logits: bool = False):
+    def _normalized_scalar_views(self):
+        L = len(self.blocks)
+        s = self.scalars.view(-1)
+        skip_weights = s[:L]
+        lambdas_raw = s[1 * L:3 * L].view(L, 2)
+        sa_raw = s[3 * L:5 * L].view(L, 2)
+
+        eps = 1e-6
+        lam_norm = lambdas_raw.norm(dim=-1, keepdim=True).clamp_min(eps)
+        sa_norm = sa_raw.norm(dim=-1, keepdim=True).clamp_min(eps)
+
+        lambdas = lambdas_raw / lam_norm
+        sa_lambdas = sa_raw / sa_norm
+        return skip_weights, lambdas, sa_lambdas
+
+    def forward(self, input_seq: Tensor, sliding_window_num_blocks: Tensor, target_seq: Tensor = None, loss_chunks: int = 4, output_logits: bool = False, debug = False):
         torch._assert(input_seq.ndim == 1, "input_seq must be 1D")
         L = len(self.blocks)
 
@@ -239,9 +254,13 @@ class DaisyCore(nn.Module):
         x = x0 = norm(self.embed(input_seq)[None])
 
         skip_map = self.skip_map
-        skip_weights = self.scalars[:L]
-        lambdas = self.scalars[1 * L:3 * L].view(-1, 2)
-        sa_lambdas = self.scalars[3 * L:5 * L].view(-1, 2)
+
+        if debug:
+            skip_weights, lambdas, sa_lambdas = self._normalized_scalar_views()
+        else:
+            skip_weights = self.scalars[:L]
+            lambdas = self.scalars[1 * L:3 * L].view(-1, 2)
+            sa_lambdas = self.scalars[3 * L:5 * L].view(-1, 2)
 
         skip_connections = []
 
@@ -363,3 +382,5 @@ class DaisyCore(nn.Module):
         V = torch.stack(V, dim=0)
         kv = torch.stack([K, V], dim=0)
         return logits, kv
+
+
