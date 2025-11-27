@@ -138,7 +138,7 @@ if is_master and args.wandb_log:
         import wandb as _wandb
 
         _project = args.wandb_project or "daisy"
-        _name = args.wandb_run_name+"-TAWL"+str(args.train_attention_window_len)+"-TSL"+str(args.training_sequence_length)
+        _name = args.wandb_run_name
         _wandb.init(project=_project, name=_name, config=asdict(args))
         _wandb_enabled = True
         logger.info(f"wandb logging enabled: project={_project} name={_name}")
