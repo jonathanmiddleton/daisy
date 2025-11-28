@@ -50,10 +50,10 @@ def derive_named_param_groups(model: nn.Module) -> dict[str, list[nn.Parameter]]
         scalar_params = [*model.skip_weights]
         for b in model.blocks:
             if getattr(b, "g_x", None) is not None:
-                scalar_params.extend(b.g_x.parameters())
+                scalar_params.append(b.g_x)
             attn = getattr(b, "attn", None)
             if attn is not None and getattr(attn, "g_ve", None) is not None:
-                scalar_params.extend(attn.g_ve.parameters())
+                scalar_params.append(attn.g_ve)
 
     # Output head weights
     a = model.embed.weight
