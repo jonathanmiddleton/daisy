@@ -47,7 +47,7 @@ def derive_named_param_groups(model: nn.Module) -> dict[str, list[nn.Parameter]]
         scalar_params = [*model.scalars.parameters()]
     else:
         # v2 model
-        scalar_params = [*model.skip_weights]
+        scalar_params = [model.skip_weights]
         for b in model.blocks:
             if getattr(b, "g_x", None) is not None:
                 scalar_params.append(b.g_x)
