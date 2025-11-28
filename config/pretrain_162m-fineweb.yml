@@ -46,4 +46,4 @@ checkpoint_warmup_tokens:   500_000_000
 checkpoint_per_n_tokens:     1
 save_checkpoint: true
 # Model Definition
-model_spec: daisy_820m
+model_spec: daisy_162m
