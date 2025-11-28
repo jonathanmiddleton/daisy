@@ -41,8 +41,20 @@ def derive_named_param_groups(model: nn.Module) -> dict[str, list[nn.Parameter]]
     # Embedding parameters
     embed_params = [*model.embed.parameters(),
                     *model.value_embeds.parameters()] if model.value_embeds is not None else [*model.embed.parameters()]
-    # Learned scalar gates
-    scalar_params = [model.scalars]
+
+    if getattr(model, "scalars", None) is not None:
+        # v1 model
+        scalar_params = [*model.scalars.parameters()]
+    else:
+        # v2 model
+        scalar_params = [*model.skip_weights]
+        for b in model.blocks:
+            if getattr(b, "g_x", None) is not None:
+                scalar_params.extend(b.g_x.parameters())
+            attn = getattr(b, "attn", None)
+            if attn is not None and getattr(attn, "g_ve", None) is not None:
+                scalar_params.extend(attn.g_ve.parameters())
+
     # Output head weights
     a = model.embed.weight
     b = model.lm_head_w

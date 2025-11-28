@@ -7,7 +7,7 @@ from models.daisy.attention_protocol import AttentionProtocol
 from models.daisy.attention import CausalSelfAttention
 from models.daisy.mlp import MLP
 from models.daisy.functional import norm
-from torch import Tensor, zeros_like
+from torch import Tensor
 
 # class NoOpAttention(nn.Module):
 #     """Attention stub that returns zeros, so we can avoid Python branches in Block.forward."""
@@ -32,7 +32,7 @@ from torch import Tensor, zeros_like
 class Block(nn.Module):
     def __init__(self, dim: int, num_heads: int, max_seq_len: int, layer_idx: int, head_dim: int, has_attn: bool, attn_impl: str = 'standard', dynamic_shapes: bool = False):
         super().__init__()
-        self.mix_x_logit = nn.Parameter(torch.zeros(()))
+        self.g_x = nn.Parameter(torch.zeros(()))
         self.attn: AttentionProtocol | None = None
         if has_attn:
             if attn_impl == 'kimi_linear':
@@ -50,7 +50,7 @@ class Block(nn.Module):
             self.attn.reset_history()
 
     def forward(self, x: Tensor, ve: Tensor, x0: Tensor, block_mask: Optional[BlockMask] = None, attn_mask: Optional[Tensor] = None):
-        g_x = torch.sigmoid(self.mix_x_logit)
+        g_x = torch.sigmoid(self.g_x)
         x = g_x * x + (1.0 - g_x) * x0
         if self.attn is not None:
             x = x + self.attn(x, ve, block_mask=block_mask, attn_mask=attn_mask)
@@ -58,7 +58,7 @@ class Block(nn.Module):
         return x
 
     def step(self, x, ve, x0, k_ctx, v_ctx, pos,  window):
-        g_x = torch.sigmoid(self.mix_x_logit)
+        g_x = torch.sigmoid(self.g_x)
         x = g_x * x + (1.0 - g_x) * x0
         if self.attn is not None:
             y_att, k_new, v_new = self.attn.step(x, k_ctx, v_ctx, pos, ve, window=window)
@@ -69,7 +69,7 @@ class Block(nn.Module):
         return x, k_new, v_new
 
     def prefill(self, x, ve: Optional[Tensor], x0,  attn_mask=None, debug=False):
-        g_x = torch.sigmoid(self.mix_x_logit)
+        g_x = torch.sigmoid(self.g_x)
         x = g_x * x + (1.0 - g_x) * x0
         if self.attn is not None:
             y, k, v = self.attn.prefill(x, ve,  attn_mask, debug=debug)

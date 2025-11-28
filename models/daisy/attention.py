@@ -90,7 +90,7 @@ class CausalSelfAttention(nn.Module):
         self.attn_scale = 0.12
         self.last_q = None
         self.last_k = None
-        self.mix_ve = nn.Parameter(torch.zeros(()))
+        self.g_ve = nn.Parameter(torch.zeros(()))
 
         if is_flex_available(dynamic_shapes=self.dynamic_shapes): # dynamic shapes fail because of implied constraints within BlockMask
             self.forward = self.forward_flex
@@ -124,7 +124,7 @@ class CausalSelfAttention(nn.Module):
     def _qkv_common(self, x: torch.Tensor, ve: torch.Tensor):
         q, k, v = self._calc_qkv(x)
         dtype = q.dtype
-        g_x = torch.sigmoid(self.mix_x_logit).to(dtype)
+        g_x = torch.sigmoid(self.g_ve).to(dtype)
         v = g_x * v + (1.0 - g_x) * ve.view_as(v).to(dtype)
         q_ = q.transpose(1, 2)
         k_ = k.transpose(1, 2)
@@ -169,7 +169,7 @@ class CausalSelfAttention(nn.Module):
         dtype = q.dtype
 
         ve = ve.to(dtype)
-        g_x = torch.sigmoid(self.mix_x_logit).to(dtype)
+        g_x = torch.sigmoid(self.g_ve).to(dtype)
         v = g_x * v + (1.0 - g_x) * ve.view_as(v).to(dtype)
 
         n = k_ctx.size(1)
