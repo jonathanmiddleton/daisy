@@ -202,7 +202,7 @@ def main(argv: List[str] | None = None) -> int:
             logger.info(f"BEGIN_SHARD: {begin_shard}")
         logger.info(f"RUN_ID base: {base_run_id}")
         logger.info(f"Extra opts: {' '.join(passthrough_long_opts) if passthrough_long_opts else '(none)'}")
-        logger.info(f"Override dimensions: {len(combos[0]) if combos and len(combos[0])>0 else 0}; total runs: {len(combos)}")
+        logger.info(f"Overridden configurations: {len(combos[0]) if combos and len(combos[0])>0 else 0}; total runs: {len(combos)}")
         # Execute each combination
         for idx, combo in enumerate(combos, start=1):
             # Update RUN_ID for each run: if numeric base, use base + (idx-1)
