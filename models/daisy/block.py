@@ -32,7 +32,7 @@ from torch import Tensor
 class Block(nn.Module):
     def __init__(self, dim: int, num_heads: int, max_seq_len: int, layer_idx: int, head_dim: int, has_attn: bool, attn_impl: str = 'standard', dynamic_shapes: bool = False):
         super().__init__()
-        self.g_x = nn.Parameter(torch.zeros(()))
+        self.g_x = nn.Parameter(torch.tensor(10.0))
         self.attn: AttentionProtocol | None = None
         if has_attn:
             if attn_impl == 'kimi_linear':

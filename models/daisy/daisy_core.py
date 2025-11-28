@@ -27,7 +27,7 @@ class ZeroEmbedding(nn.Module):
         # Return a zero tensor shaped like an embedding(x)
         out_shape = (*x.shape, self.end_dim)
         #TODO cache these?
-        return torch.zeros(out_shape, dtype=self.zero.dtype, device=x.device, requires_grad=False)
+        return torch.zeros(out_shape, dtype=self.zero.dtype, device=x.device)
 
     def _apply(self, fn, recurse=True):
         super()._apply(fn, recurse)
