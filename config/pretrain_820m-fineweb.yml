@@ -6,12 +6,12 @@ wandb_run_name: '820m-pretrain-fineweb'
 torch.coordinate_descent_tuning: true
 # Pretraining configuration
 train_shards: "data/fineweb-edu/edu_fineweb_train_*.bin"
-target_tokens: 18_000_000_000
+target_tokens: 10_000_000_000
 cooldown_frac: 1
 learning_rate_schedule: cosine_decay
 learning_rate_floor: 0.1
 training_sequence_length: 51200
-train_attention_window_len: 8192
+train_attention_window_len: 51200
 # Optimizers configuration
 optimizers:
   - type: AdamW
@@ -38,9 +38,9 @@ grad_acc_steps: 1 # assumes world_size=8
 val_shards:
   - type: "fineweb-edu"
     path: "data/fineweb-edu/edu_fineweb_val_*.bin"
-    target_tokens: 41_943_040
+    target_tokens: 10_485_760
     sequence_length: 131_072
-val_loss_every_tokens:    262_144_000
+val_loss_every_tokens:    131_072_000
 # Checkpoints
 checkpoint_warmup_tokens:   1_000_000_000
 checkpoint_per_n_tokens:     1
