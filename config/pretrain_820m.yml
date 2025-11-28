@@ -32,7 +32,7 @@ optimizers:
     params:
       - group: hidden_matrix_params
         lr: 0.025
-full_windows: true
+full_windows: false
 grad_acc_steps: 1 # assumes world_size=8
 # Evaluations
 val_shards:
