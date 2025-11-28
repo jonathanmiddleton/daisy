@@ -69,6 +69,13 @@ def derive_named_param_groups(model: nn.Module) -> dict[str, list[nn.Parameter]]
     params_collections = [p for p in params_collections if p is not None]
     optimized_parameters_set = {p for params in params_collections if params for p in params}
     all_params = set(model.parameters())
+    missing = all_params - optimized_parameters_set  # in all_params but not in optimized_parameters_set
+    extra = optimized_parameters_set - all_params  # in optimized_parameters_set but not in all_params
+
+    if missing or extra:
+        logger.error(f"Missing from optimized_parameters_set: {missing}")
+        logger.error(f"Extra in optimized_parameters_set: {extra}")
+
     assert optimized_parameters_set == all_params
     assert len(optimized_parameters_set) == sum(len(lst) for lst in params_collections)
 
