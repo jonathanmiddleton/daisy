@@ -7,7 +7,7 @@ torch.coordinate_descent_tuning: false
 # Pretraining configuration
 train_shards: "data/dclm_baseline/dclm_baseline_train_*.bin"
 target_tokens: 1_000_000_000
-cooldown_frac: 1
+cooldown_frac: 0.5
 learning_rate_schedule: linear_decay
 learning_rate_floor: 0.1
 training_sequence_length: 65536
@@ -22,17 +22,17 @@ optimizers:
     params:
       - group: head_params
         lr: 0.003464
-      - group: embed_params        # LVP sqrt(d)-rule
-        lr: 0.110848               # instead of 0.1732
+      - group: embed_params
+        lr: 0.2598
       - group: scalar_params
-        lr: 0.01299
+        lr: 0.01732
   - type: Muon
     momentum: 0.95
-    weight_decay: 0.01
+    weight_decay: 1.2
     params:
       - group: hidden_matrix_params
-        lr: 0.025
-full_windows: true
+        lr: 0.03
+full_windows: false
 grad_acc_steps: 1 # assumes world_size=8
 # Evaluations
 val_shards:
