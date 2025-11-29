@@ -269,30 +269,31 @@ def format_report_text(report: Dict[str, Any]) -> str:
         lines.append("No 'scalars' parameter found in model.")
     else:
         L = sc.get("num_layers")
+        # Note: num_layers is derived directly from len(model.blocks) during analysis
         lines.append(f"num_layers (inferred): {L}")
         lines.append(f"threshold for near-zero: {sc['zero_threshold']}")
         gsum = sc.get("groups", {})
+        # Map internal group keys to user-facing labels matching the table headers
+        label_map = {
+            "skip_weights": "Long Skips",
+            "lambdas": "Sideband Res. Gates",
+            "sa_lambdas": "V. Embd Gates",
+        }
         for name in ("skip_weights", "lambdas", "sa_lambdas"):
             g = gsum.get(name)
             if not g:
                 continue
-            lines.append(f"- {name}: shape={g['shape']}, min={g['min']:.4g}, max={g['max']:.4g}, mean={g['mean']:.4g}, std={g['std']:.4g}")
+            disp_name = label_map.get(name, name)
+            lines.append(f"- {disp_name}: shape={g['shape']}, min={g['min']:.4g}, max={g['max']:.4g}, mean={g['mean']:.4g}, std={g['std']:.4g}")
             lines.append(f"  near-zero: {g['num_near_zero']} elements ({100.0*g['frac_near_zero']:.2f}%)")
         if sc.get("layers_with_skip_near_zero"):
             lines.append(f"layers with near-zero skip weight: {sc['layers_with_skip_near_zero']}")
         # Per-layer compact print (with sigmoid display for g_x and g_ve)
         # Title/header row: remove extra wording and parentheses, show only column labels aligned
         lines.append("")
-        # Establish column widths so numeric values line up under headers
         col1_label = "Long Skip"
         col2_label = "Sideband Res. Gate*"
         col3_label = "V. Embd Gate*"
-        w1, w2, w3 = len(col1_label), len(col2_label), len(col3_label)
-        header_prefix = " " * 6  # aligns with "  {i:02d}: "
-        header_line = (
-            f"{header_prefix}{col1_label.rjust(w1)} | {col2_label.rjust(w2)} | {col3_label.rjust(w3)}"
-        )
-        lines.append(header_line)
 
         def fmt_float(val: float) -> str:
             try:
@@ -306,32 +307,49 @@ def format_report_text(report: Dict[str, Any]) -> str:
             except Exception:
                 return x
 
+        # First pass: build row strings (so we can compute value-driven column widths)
+        rows: list[tuple[int, str, str, str]] = []
         for li in sc.get("per_layer", []):
             i = li["layer"]
 
             # Long Skip (raw)
             skip_raw = li.get("skip_w")
-            skip_s = fmt_float(skip_raw).rjust(w1)
+            skip_s_val = fmt_float(skip_raw)
 
-            # Sideband Res. Gate (sigmoid of Block.g_x)
+            # Sideband Res. Gate (sigmoid of Block.g_x) as "lam / (1-lam)"
             lam_vals = li.get("lambda")
             if lam_vals is None:
                 lam_disp = "-"
             else:
-                # Expect a single scalar in list; show sigmoid(value) without brackets
                 lam_sig = sigmoid_val(lam_vals[0])
-                lam_disp = fmt_float(lam_sig)
-            lam_s = lam_disp.rjust(w2)
+                lam_disp = f"{fmt_float(lam_sig)} / {fmt_float(1.0 - lam_sig)}"
 
-            # V. Embd Gate (sigmoid of CausalSelfAttention.g_ve)
+            # V. Embd Gate (sigmoid of CausalSelfAttention.g_ve) as "lam / (1-lam)"
             sa_vals = li.get("sa_lambda")
             if sa_vals is None:
                 sa_disp = "-"
             else:
                 sa_sig = sigmoid_val(sa_vals[0])
-                sa_disp = fmt_float(sa_sig)
-            sal_s = sa_disp.rjust(w3)
+                sa_disp = f"{fmt_float(sa_sig)} / {fmt_float(1.0 - sa_sig)}"
 
+            rows.append((i, skip_s_val, lam_disp, sa_disp))
+
+        # Compute column widths based on both headers and row contents
+        w1 = max(len(col1_label), max((len(r[1]) for r in rows), default=0))
+        w2 = max(len(col2_label), max((len(r[2]) for r in rows), default=0))
+        w3 = max(len(col3_label), max((len(r[3]) for r in rows), default=0))
+
+        header_prefix = " " * 6  # aligns with "  {i:02d}: "
+        header_line = (
+            f"{header_prefix}{col1_label.rjust(w1)} | {col2_label.rjust(w2)} | {col3_label.rjust(w3)}"
+        )
+        lines.append(header_line)
+
+        # Second pass: print rows aligned to computed widths
+        for i, skip_s_val, lam_disp, sa_disp in rows:
+            skip_s = skip_s_val.rjust(w1)
+            lam_s = lam_disp.rjust(w2)
+            sal_s = sa_disp.rjust(w3)
             lines.append(f"  {i:02d}: {skip_s} | {lam_s} | {sal_s}")
 
         # Footnote clarifying transformed values
