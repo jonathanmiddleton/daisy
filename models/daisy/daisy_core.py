@@ -17,7 +17,7 @@ def next_multiple_of_n(v: float | int, *, n: int):
     return next(x for x in range(n, int(v) + 1 + n, n) if x >= v)
 
 class ZeroEmbedding(nn.Module):
-    def __init__(self, end_dim: int, dtype: torch.dtype = torch.int64, *args: Any, **kwargs: Any):
+    def __init__(self, end_dim: int, dtype: torch.dtype = torch.bfloat16, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
         self.end_dim = end_dim
         self.zero = nn.Buffer(torch.zeros(1, dtype=dtype), persistent=False)  # anchor for device/dtype so that we're moved when .to is called
