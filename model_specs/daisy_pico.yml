@@ -6,9 +6,9 @@ num_layers: 6
 num_heads: 6
 head_dim: 64
 model_dim: 384
-attention_window_len: 16384
-max_seq_len: 16384
+attention_window_len: 65_536
+max_seq_len: 65_536
 value_embeddings: true
 tied_embeddings: false
-attn_all_layers: false
+attn_all_layers: true
 attn_impl: 'standard' #  'standard' or `kimi_linear`

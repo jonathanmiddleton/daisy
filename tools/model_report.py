@@ -75,7 +75,7 @@ def analyze_scalars(model: nn.Module, hparams: Dict[str, Any], zero_threshold: f
         if attn is None:
             continue
         gate = None
-        for name in "g_ve":
+        for name in ("g_ve",):
             if hasattr(attn, name) and isinstance(getattr(attn, name), torch.Tensor):
                 gate = getattr(attn, name)
                 break
@@ -289,13 +289,18 @@ def format_report_text(report: Dict[str, Any]) -> str:
         if sc.get("layers_with_skip_near_zero"):
             lines.append(f"layers with near-zero skip weight: {sc['layers_with_skip_near_zero']}")
         # Per-layer compact print (with sigmoid display for g_x and g_ve)
-        header = "Per-layer (i: Long Skip | Sideband Res. Gate* | V. Embd Gate*)"
-        lines.append("\n" + header)
+        # Title/header row: remove extra wording and parentheses, show only column labels aligned
+        lines.append("")
         # Establish column widths so numeric values line up under headers
         col1_label = "Long Skip"
         col2_label = "Sideband Res. Gate*"
         col3_label = "V. Embd Gate*"
         w1, w2, w3 = len(col1_label), len(col2_label), len(col3_label)
+        header_prefix = " " * 6  # aligns with "  {i:02d}: "
+        header_line = (
+            f"{header_prefix}{col1_label.rjust(w1)} | {col2_label.rjust(w2)} | {col3_label.rjust(w3)}"
+        )
+        lines.append(header_line)
 
         def fmt_float(val: float) -> str:
             try:
@@ -321,9 +326,9 @@ def format_report_text(report: Dict[str, Any]) -> str:
             if lam_vals is None:
                 lam_disp = "-"
             else:
-                # Expect a single scalar in list; show as [value]
+                # Expect a single scalar in list; show sigmoid(value) without brackets
                 lam_sig = sigmoid_val(lam_vals[0])
-                lam_disp = f"[{fmt_float(lam_sig)}]"
+                lam_disp = fmt_float(lam_sig)
             lam_s = lam_disp.rjust(w2)
 
             # V. Embd Gate (sigmoid of CausalSelfAttention.g_ve)
@@ -332,7 +337,7 @@ def format_report_text(report: Dict[str, Any]) -> str:
                 sa_disp = "-"
             else:
                 sa_sig = sigmoid_val(sa_vals[0])
-                sa_disp = f"[{fmt_float(sa_sig)}]"
+                sa_disp = fmt_float(sa_sig)
             sal_s = sa_disp.rjust(w3)
 
             lines.append(f"  {i:02d}: {skip_s} | {lam_s} | {sal_s}")
