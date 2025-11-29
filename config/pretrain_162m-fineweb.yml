@@ -10,8 +10,8 @@ target_tokens: 2_000_000_000
 cooldown_frac: 1
 learning_rate_schedule: linear_decay
 learning_rate_floor: 0.1
-training_sequence_length: 65536
-train_attention_window_len: 65536
+training_sequence_length: 32768
+train_attention_window_len: 2048
 # Optimizers configuration
 optimizers:
   - type: AdamW
