@@ -76,7 +76,7 @@ def analyze_scalars(model: nn.Module, hparams: Dict[str, Any], zero_threshold: f
         if attn is None:
             continue
         gate = None
-        for name in ("g_attn", "g_ve"):
+        for name in "g_ve":
             if hasattr(attn, name) and isinstance(getattr(attn, name), torch.Tensor):
                 gate = getattr(attn, name)
                 break
