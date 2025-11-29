@@ -315,7 +315,7 @@ for opt in optimizers:
         group["initial_lr"] = group["lr"]
 
 report = build_report(model)
-logger.info(f"Model report:\n{format_report_text(report)}")
+logger.info(f"Initial model report:\n{format_report_text(report)}")
 model = maybe_compile(model, dynamic=is_task) # need dynamic compile for varible task shapes
 
 
@@ -676,3 +676,6 @@ if _wandb_enabled:
         logger.warning("wandb.finish(): " + str(_e))
 if use_distributed and dist.is_initialized():
     dist.destroy_process_group()
+
+report = build_report(model)
+logger.info(f"Final model report:\n{format_report_text(report)}")
