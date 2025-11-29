@@ -69,7 +69,6 @@ def analyze_scalars(model: nn.Module, hparams: Dict[str, Any], zero_threshold: f
     lambdas = torch.stack(lambdas_list).view(-1)
 
     # Attention scalars: only for layers that have an attention module with a gate parameter
-    # Prefer an attribute named 'g_attn' if present; otherwise accept 'g_ve' (current naming).
     sa_list = []
     for b in model.blocks:
         attn = getattr(b, "attn", None)
@@ -133,7 +132,7 @@ def analyze_scalars(model: nn.Module, hparams: Dict[str, Any], zero_threshold: f
         sa_nz_list = None
         if attn is not None:
             gate_t = None
-            for name in ("g_attn", "g_ve"):
+            for name in "g_ve":
                 if hasattr(attn, name) and isinstance(getattr(attn, name), torch.Tensor):
                     gate_t = getattr(attn, name)
                     break
@@ -292,8 +291,7 @@ def format_report_text(report: Dict[str, Any]) -> str:
         # Per-layer compact print (with sigmoid display for g_x and g_ve)
         header = "Per-layer (i: Long Skip | Sideband Res. Gate* | V. Embd Gate*)"
         lines.append("\n" + header)
-
-        # Column widths based on header segments to align values with headers
+        # Establish column widths so numeric values line up under headers
         col1_label = "Long Skip"
         col2_label = "Sideband Res. Gate*"
         col3_label = "V. Embd Gate*"
