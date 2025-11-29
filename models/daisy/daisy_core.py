@@ -71,6 +71,7 @@ def pick_attention_layers(L, d_model=None, num_heads=None, attn_impl='standard',
     if L == 4: return [0, 1, 3]
     if L == 5: return [0, 2, 4]
     if L == 6: return [0, 1, 3, 5]
+    if L == 12: return [i for i in range(12) if i != 7]
     if L == 16: return [0, 1, 2, 4, 5, 7, 8, 10, 11, 13, 14, 15] #backwards compatibility
     d_head = (d_model // num_heads) if (d_model and num_heads) else 64
     s = max(4, min(12, round(8 * (d_head / 64) ** 0.5)))
