@@ -68,18 +68,14 @@ def analyze_scalars(model: nn.Module, hparams: Dict[str, Any], zero_threshold: f
             lambdas_list.append(torch.tensor(float("nan")))
     lambdas = torch.stack(lambdas_list).view(-1)
 
-    # Attention scalars: only for layers that have an attention module with a gate parameter
+    # Attention scalars: only for layers that have an attention module with a gate parameter (g_ve)
     sa_list = []
     for b in model.blocks:
         attn = getattr(b, "attn", None)
         if attn is None:
             continue
-        gate = None
-        for name in "g_ve":
-            if hasattr(attn, name) and isinstance(getattr(attn, name), torch.Tensor):
-                gate = getattr(attn, name)
-                break
-        if gate is not None:
+        gate = getattr(attn, "g_ve", None)
+        if isinstance(gate, torch.Tensor):
             sa_list.append(gate.detach().float().cpu().view(()))
     sa_lambdas = torch.stack(sa_list).view(-1) if len(sa_list) > 0 else torch.zeros(0, dtype=skip_w.dtype)
 
@@ -131,12 +127,8 @@ def analyze_scalars(model: nn.Module, hparams: Dict[str, Any], zero_threshold: f
         sa_val_list = None
         sa_nz_list = None
         if attn is not None:
-            gate_t = None
-            for name in "g_ve":
-                if hasattr(attn, name) and isinstance(getattr(attn, name), torch.Tensor):
-                    gate_t = getattr(attn, name)
-                    break
-            if gate_t is not None:
+            gate_t = getattr(attn, "g_ve", None)
+            if isinstance(gate_t, torch.Tensor):
                 v = float(gate_t.detach().float().cpu().view(()).item())
                 sa_val_list = [v]
                 sa_nz_list = [bool(abs(v) <= zero_threshold)]
