@@ -645,6 +645,7 @@ while progress.tokens_processed < progress.target_tokens:
                 "lr_scale_base": lr_scale_base,
                 "learning_rate_floor": float(getattr(args, "learning_rate_floor", 0.0)),
                 "train/time_ms": approx_training_time_ms,
+                "avg_step_ms":avg_step,
             }
         )
 
