@@ -10,4 +10,7 @@ max_seq_len: 65_536
 value_embeddings: true
 attn_all_layers: true
 tied_embeddings: false
-attn_impl: 'standard' #  'standard' or `kimi_linear`
+attn_impl: 'kimi_linear' # 'standard' or `kimi_linear`
+
+
+

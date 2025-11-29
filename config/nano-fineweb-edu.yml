@@ -1,7 +1,7 @@
 # Logging
 wandb_log: true
-wandb_project: 'daisy-162m'
-wandb_run_name: '162m-pretrain-fineweb'
+wandb_project: 'daisy'
+wandb_run_name: 'nano-fineweb-edu'
 # Torch config
 torch.coordinate_descent_tuning: false
 # Pretraining configuration
@@ -9,7 +9,7 @@ train_shards: "data/fineweb-edu/edu_fineweb_train_*.bin"
 target_tokens: 1_000_000_000
 cooldown_frac: 1
 learning_rate_schedule: linear_decay
-learning_rate_floor: 0.5
+learning_rate_floor: 0.1
 training_sequence_length: 65536
 train_attention_window_len: 4096
 # Optimizers configuration
@@ -46,4 +46,4 @@ checkpoint_warmup_tokens:   500_000_000
 checkpoint_per_n_tokens:     1
 save_checkpoint: true
 # Model Definition
-model_spec: daisy_162m
+model_spec: daisy_nano

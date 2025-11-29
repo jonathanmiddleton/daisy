@@ -1,15 +1,15 @@
 # Logging
 wandb_log: true
 wandb_project: 'daisy'
-wandb_run_name: '162m-pretrain-fineweb'
+wandb_run_name: 'pico-overfit-dclm'
 # Torch config
 torch.coordinate_descent_tuning: false
 # Pretraining configuration
-train_shards: "data/fineweb-edu/edu_fineweb_train_*.bin"
+train_shards: "data/overfit/dclm_baseline_overfit_1M.bin"
 target_tokens: 1_000_000_000
 cooldown_frac: 1
 learning_rate_schedule: linear_decay
-learning_rate_floor: 0.5
+learning_rate_floor: 0.01
 training_sequence_length: 65536
 train_attention_window_len: 4096
 # Optimizers configuration
@@ -17,7 +17,7 @@ optimizers:
   - type: AdamW
     betas: [0.9, 0.95]
     eps: 1.0e-10
-    weight_decay: 0.01
+    weight_decay: 0.0
     fused: true
     params:
       - group: head_params
@@ -28,7 +28,7 @@ optimizers:
         lr: 0.01299
   - type: Muon
     momentum: 0.95
-    weight_decay: 0.01
+    weight_decay: 0.0
     params:
       - group: hidden_matrix_params
         lr: 0.025
@@ -36,13 +36,13 @@ full_windows: false
 grad_acc_steps: 1
 # Evaluations
 val_shards:
-  - type: "fineweb-edu"
-    path: "data/fineweb-edu/edu_fineweb_val_*.bin"
+  - type: "dclm_baseline"
+    path: "data/overfit/dclm_baseline_overfit_1M.bin"
     target_tokens: 41_943_040
     sequence_length: 131_072
-val_loss_every_tokens:    131_072_000
+val_loss_every_tokens:    1_000_000_001
 # Checkpoints
-checkpoint_warmup_tokens:   1_000_000_000
+checkpoint_warmup_tokens:   1_000_000_001
 checkpoint_per_n_tokens:     1
 save_checkpoint: true
 # Model Definition

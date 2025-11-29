@@ -1,41 +1,41 @@
 # test config, attempts overfit
 wandb_log: true
-wandb_project: 'daisy-linear'
-wandb_run_name: 'pico_overfit_linear-fused_gate_custom_op'
+wandb_project: 'daisy'
+wandb_run_name: 'overfit-pico_linear-fineweb-edu'
 # Torch config
 torch.coordinate_descent_tuning: true
 # Pretraining configuration
 train_shards: "data/overfit/edu_fineweb_overfit_1M.bin"
 target_tokens: 41_943_040
-cooldown_frac: 0.5
+cooldown_frac: 1.0
 learning_rate_schedule: linear_decay
 learning_rate_floor: 0.01
-training_sequence_length: 51200        #  N * 1024; must be divisible by window_block_size
-train_attention_window_len: 3456        # largest sliding attention window used during training; must be divisible by window_block_size
+training_sequence_length: 65536        #  N * 1024; must be divisible by window_block_size
+train_attention_window_len: 4096        # largest sliding attention window used during training; must be divisible by window_block_size
 # Optimizers configuration
 optimizers:
   - type: AdamW
-    betas: [0.8, 0.95]
+    betas: [0.9, 0.95]
     eps: 1.0e-10
-    weight_decay: 0.0
+    weight_decay: 0.01
     fused: true
     params:
       - group: head_params
-        lr: 0.004
+        lr: 0.003464
       - group: embed_params
-        lr: 0.2
+        lr: 0.110848
       - group: scalar_params
-        lr: 0.015
+        lr: 0.01299
       - group: hidden_scalar_params
         lr: 0.015
       - group: attn_time_constant_params
         lr: 0.015 #possibly .5-1x hidden_scalar_params
   - type: Muon
     momentum: 0.95
-    weight_decay: 0.0
+    weight_decay: 0.01
     params:
       - group: hidden_matrix_params
-        lr: 0.02
+        lr: 0.025
 full_windows: true
 # Gradient accumulation
 grad_acc_steps: 1
@@ -52,4 +52,4 @@ save_checkpoint: true
 checkpoint_warmup_tokens:     41_943_038
 checkpoint_per_n_tokens:      1
 # Model Definition
-model_spec: daisy_pico_256_linear
+model_spec: daisy_pico_linear
