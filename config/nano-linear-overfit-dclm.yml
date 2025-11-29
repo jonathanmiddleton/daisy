@@ -42,7 +42,7 @@ grad_acc_steps: 1 # assumes world_size=8
 val_shards:
   - type: "dclm_baseline"
     path: "data/overfit/dclm_baseline_overfit_1M.bin"
-    target_tokens: 1_000_000
+    target_tokens: 1_048_576
     sequence_length: 65_536
 val_loss_every_tokens:    131_072_000
 # Checkpoints
