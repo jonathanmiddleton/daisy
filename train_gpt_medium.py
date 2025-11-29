@@ -687,11 +687,7 @@ for step in range(train_steps + 1):
     print0(
         f"step:{step + 1}/{train_steps} train_time:{approx_training_time_ms:.0f}ms step_avg:{approx_training_time_ms / (step + 1):.2f}ms",
         console=True)
-    # wandb: log training metrics every step
-    wb_log({
-        "train/loss": float(train_loss.item()),
-        "tokens": int(tokens_per_step * (step + 1)),
-    }, step=step + 1)
+
 
 print0(f"peak memory allocated: {torch.cuda.max_memory_allocated() // 1024 // 1024} MiB "
        f"reserved: {torch.cuda.max_memory_reserved() // 1024 // 1024} MiB", console=True)
