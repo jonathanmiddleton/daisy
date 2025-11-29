@@ -12,7 +12,11 @@ pandas
 datasets
 tiktoken
 transformers
-einops # KimiLinear
 pytest
+
+# KimiLinear
+einops
+# installed via install.sh
+# flash-linear-attention
 
 
