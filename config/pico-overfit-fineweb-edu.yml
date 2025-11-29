@@ -1,7 +1,7 @@
 # Logging
 wandb_log: true
 wandb_project: 'daisy'
-wandb_run_name: 'overfit-pico-fineweb-edu'
+wandb_run_name: 'pico-overfit-fineweb-edu'
 # Torch config
 torch.coordinate_descent_tuning: false
 # Pretraining configuration

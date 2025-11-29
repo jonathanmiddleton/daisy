@@ -1,7 +1,7 @@
-# test config, attempts overfit
+# Logging
 wandb_log: true
 wandb_project: 'daisy'
-wandb_run_name: 'overfit-pico_linear-fineweb-edu'
+wandb_run_name: 'pico-linear-fineweb-edu'
 # Torch config
 torch.coordinate_descent_tuning: true
 # Pretraining configuration
