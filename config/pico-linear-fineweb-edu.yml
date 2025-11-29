@@ -6,11 +6,11 @@ wandb_run_name: 'pico-linear-fineweb-edu'
 torch.coordinate_descent_tuning: true
 # Pretraining configuration
 train_shards: "data/overfit/edu_fineweb_overfit_1M.bin"
-target_tokens: 41_943_040
+target_tokens: 1_000_000_000
 cooldown_frac: 1.0
 learning_rate_schedule: linear_decay
 learning_rate_floor: 0.01
-training_sequence_length: 65536        #  N * 1024; must be divisible by window_block_size
+training_sequence_length: 65_536        #  N * 1024; must be divisible by window_block_size
 train_attention_window_len: 4096        # largest sliding attention window used during training; must be divisible by window_block_size
 # Optimizers configuration
 optimizers:
@@ -44,9 +44,9 @@ grad_acc_steps: 1
 val_shards:
   - type: "fineweb-edu"
     path: "data/overfit/edu_fineweb_overfit_1M.bin"
-    target_tokens: 8
-    sequence_length: 1
-val_loss_every_tokens: 999_999_999_999
+    target_tokens: 41_943_040
+    sequence_length: 65_536
+val_loss_every_tokens:    131_072_000
 # Checkpoints
 save_checkpoint: true
 checkpoint_warmup_tokens:     41_943_038

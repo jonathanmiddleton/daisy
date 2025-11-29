@@ -10,7 +10,7 @@ target_tokens: 1_000_000_000
 cooldown_frac: 1
 learning_rate_schedule: linear_decay
 learning_rate_floor: 0.01
-training_sequence_length: 65536
+training_sequence_length: 65_536
 train_attention_window_len: 4096
 # Optimizers configuration
 optimizers:
@@ -39,8 +39,8 @@ val_shards:
   - type: "fineweb-edu"
     path: "data/fineweb-edu/edu_fineweb_val_*.bin"
     target_tokens: 41_943_040
-    sequence_length: 131_072
-val_loss_every_tokens:    1_000_000_001
+    sequence_length: 65_536
+val_loss_every_tokens:    131_072_000
 # Checkpoints
 checkpoint_warmup_tokens:   1_000_000_001
 checkpoint_per_n_tokens:     1
