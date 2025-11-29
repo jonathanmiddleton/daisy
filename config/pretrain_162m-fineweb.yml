@@ -11,7 +11,7 @@ cooldown_frac: 1
 learning_rate_schedule: linear_decay
 learning_rate_floor: 0.5
 training_sequence_length: 65536
-train_attention_window_len: 2048
+train_attention_window_len: 4096
 # Optimizers configuration
 optimizers:
   - type: AdamW
@@ -31,7 +31,7 @@ optimizers:
     weight_decay: 0.01
     params:
       - group: hidden_matrix_params
-        lr: 0.03
+        lr: 0.025
 full_windows: false
 grad_acc_steps: 1 # assumes world_size=8
 # Evaluations
