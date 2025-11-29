@@ -453,82 +453,85 @@ step = 0
 t0 = time.perf_counter()
 warmup_end = 0.0
 
+def perform_eval(training_time_ms: float, step: int, t0: float, progress: ProgressMeter, ema_dloss_per_token: float, best_val: float, run_start_minute: str, run_id: int, model: nn.Module, args: Hyperparameters, _tokens_per_optim_step: int):
+    logger.info("[eval] starting evaluations...")
+    if use_distributed:
+        dist.barrier()
+    training_time_ms += 1000 * (time.perf_counter() - t0)
+    model.eval()
+
+    per_ds_results: list[tuple[str, dict]] = []
+    for _label, _ev, _target_tokens in _val_evals:
+        logger.info(
+            f"[eval] start dataset={_label} target_tokens={_target_tokens})"
+        )
+        _world_batch = _ev.world_batch_tokens or 0
+        _steps = _target_tokens // _world_batch if _world_batch > 0 else 0
+        _out = _ev.eval(model=model, total_tokens=_target_tokens, schedule=progress.s)
+        per_ds_results.append((_label, _out))
+
+    # Canonical/primary val metrics use the first dataset
+    primary_label, primary_out = per_ds_results[0]
+    cur_val = float(primary_out.get("val_loss"))
+    last_val_loss = cur_val
+    ema_dloss_per_token = primary_out.get("ema_dloss_per_token", ema_dloss_per_token)
+
+    parts = [f"{lbl}:{float(out.get('val_loss')):.6f}" for lbl, out in per_ds_results]
+    logger.info(
+        f"step:{step} tokens:{progress.tokens_processed:,}/{progress.target_tokens:,} (s={progress.s:.4f}) "
+        + " ".join(parts)
+        + f" train_time:{training_time_ms:,.0f}ms ema_dloss_per_1e6_tokens:{ema_dloss_per_token * 1e6:.6f}"
+    )
+
+    wb = {
+        "val/loss": cur_val,
+        "val/ppl": math.exp(cur_val) if cur_val < 20 else float("inf"),
+        "val/ema_dloss_per_token": ema_dloss_per_token,
+        "tokens": progress.tokens_processed,
+        "s": progress.s,
+        "train/time_ms": training_time_ms + 1000 * (time.perf_counter() - t0),
+        "step": step,
+    }
+    for lbl, out in per_ds_results:
+        _loss = out.get("val_loss")
+        wb[f"val/{lbl}/loss"] = _loss
+        wb[f"val/{lbl}/ppl"] = math.exp(_loss) if _loss < 20 else float("inf")
+    log_wandb(wb)
+
+    if is_master and args.save_checkpoint and progress.should_checkpoint():
+        if cur_val < best_val:
+            best_val = cur_val
+            fname = _save_checkpoint(
+                val_value=cur_val,
+                step=step,
+                run_start_minute=run_start_minute,
+                run_id=run_id,
+                model=model,
+                best_val=best_val,
+                args=args,
+                tokens_per_step=_tokens_per_optim_step,
+                tokens=progress.tokens_processed,
+                progress=progress,
+                overwrite=False,
+                suffix="best",
+            )
+            logger.info(f"Saved checkpoint to {fname} with val loss {float(cur_val):.6f}")
+        else:
+            logger.info(
+                f"No improvement in val loss: best={best_val:.6f}, current={cur_val:.6f}. Skipping checkpoint."
+            )
+
+        progress.mark_checkpoint_done()
+
+    model.train()
+    if use_distributed:
+        dist.barrier()
+    t0 = time.perf_counter()
+
 while progress.tokens_processed < progress.target_tokens:
     # --------------- Evaluation -----------------
     if progress.should_eval():
-        logger.info("[eval] starting evaluations...")
-        if use_distributed:
-            dist.barrier()
-        training_time_ms += 1000 * (time.perf_counter() - t0)
-        model.eval()
-
-        per_ds_results: list[tuple[str, dict]] = []
-        for _label, _ev, _target_tokens in _val_evals:
-            logger.info(
-                f"[eval] start dataset={_label} target_tokens={_target_tokens})"
-            )
-            _world_batch = _ev.world_batch_tokens or 0
-            _steps = _target_tokens // _world_batch if _world_batch > 0 else 0
-            _out = _ev.eval(model=model, total_tokens=_target_tokens, schedule=progress.s)
-            per_ds_results.append((_label, _out))
-
-        # Canonical/primary val metrics use the first dataset
-        primary_label, primary_out = per_ds_results[0]
-        cur_val = float(primary_out.get("val_loss"))
-        last_val_loss = cur_val
-        ema_dloss_per_token = primary_out.get("ema_dloss_per_token", ema_dloss_per_token)
-
-        parts = [f"{lbl}:{float(out.get('val_loss')):.6f}" for lbl, out in per_ds_results]
-        logger.info(
-            f"step:{step} tokens:{progress.tokens_processed:,}/{progress.target_tokens:,} (s={progress.s:.4f}) "
-            + " ".join(parts)
-            + f" train_time:{training_time_ms:,.0f}ms ema_dloss_per_1e6_tokens:{ema_dloss_per_token * 1e6:.6f}"
-        )
-
-        wb = {
-            "val/loss": cur_val,
-            "val/ppl": math.exp(cur_val) if cur_val < 20 else float("inf"),
-            "val/ema_dloss_per_token": ema_dloss_per_token,
-            "tokens": progress.tokens_processed,
-            "s": progress.s,
-            "train/time_ms": training_time_ms + 1000 * (time.perf_counter() - t0),
-            "step": step,
-        }
-        for lbl, out in per_ds_results:
-            _loss = out.get("val_loss")
-            wb[f"val/{lbl}/loss"] = _loss
-            wb[f"val/{lbl}/ppl"] = math.exp(_loss) if _loss < 20 else float("inf")
-        log_wandb(wb)
-
-        if is_master and args.save_checkpoint and progress.should_checkpoint():
-            if cur_val < best_val:
-                best_val = cur_val
-                fname = _save_checkpoint(
-                    val_value=cur_val,
-                    step=step,
-                    run_start_minute=run_start_minute,
-                    run_id=run_id,
-                    model=model,
-                    best_val=best_val,
-                    args=args,
-                    tokens_per_step=_tokens_per_optim_step,
-                    tokens=progress.tokens_processed,
-                    progress=progress,
-                    overwrite=False,
-                    suffix="best",
-                )
-                logger.info(f"Saved checkpoint to {fname} with val loss {float(cur_val):.6f}")
-            else:
-                logger.info(
-                    f"No improvement in val loss: best={best_val:.6f}, current={cur_val:.6f}. Skipping checkpoint."
-                )
-
-            progress.mark_checkpoint_done()
-
-        model.train()
-        if use_distributed:
-            dist.barrier()
-        t0 = time.perf_counter()
+        perform_eval(training_time_ms, step, t0, progress, ema_dloss_per_token, best_val, run_start_minute, run_id, model, args, _tokens_per_optim_step)
         progress.mark_eval_done()
 
     # --------------- TRAINING SECTION -----------------
@@ -645,7 +648,8 @@ while progress.tokens_processed < progress.target_tokens:
             }
         )
 
-# End of training: save final checkpoint
+# End of training
+perform_eval(training_time_ms, step, t0, progress, ema_dloss_per_token, best_val, run_start_minute, run_id, model, args, _tokens_per_optim_step)
 if is_master and args.save_checkpoint:
     _ = _save_checkpoint(
         val_value=last_val_loss,

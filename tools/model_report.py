@@ -45,23 +45,48 @@ def analyze_scalars(model: nn.Module, hparams: Dict[str, Any], zero_threshold: f
         "per_layer": [],
     }
 
-    if getattr(model, "scalars", None) is not None:
-        # v1 model
-        L = len(model.blocks)
-        s = model.scalars.view(-1)
-        skip_w = s[:L]
-        lambdas = s[1 * L:3 * L].view(L, 2)
-        sa_lambdas = s[3 * L:5 * L].view(L, 2)
-    else:
-        # v2 model
-        skip_w = [model.skip_weights.detach().float().cpu()]
-        # TODO finish refactor for gates
+    # New architecture only: collect scalars from DaisyCore style modules.
+    # We intentionally avoid tight coupling by using attribute checks rather than relying on a fixed tensor layout.
+    if not hasattr(model, "blocks") or not hasattr(model, "skip_weights"):
         return out
+
+    L = len(getattr(model, "blocks", []))
+    if L == 0:
+        return out
+
+    # Skip weights live on the root module
+    skip_w = model.skip_weights.detach().float().cpu().view(-1)
+
+    # Residual mix scalars: one per block at .g_x
+    lambdas_list = []
+    for b in model.blocks:
+        gx = getattr(b, "g_x", None)
+        if isinstance(gx, torch.Tensor):
+            lambdas_list.append(gx.detach().float().cpu().view(()))
+        else:
+            # If missing, use NaN placeholder to keep alignment
+            lambdas_list.append(torch.tensor(float("nan")))
+    lambdas = torch.stack(lambdas_list).view(-1)
+
+    # Attention scalars: only for layers that have an attention module with a gate parameter
+    # Prefer an attribute named 'g_attn' if present; otherwise accept 'g_ve' (current naming).
+    sa_list = []
+    for b in model.blocks:
+        attn = getattr(b, "attn", None)
+        if attn is None:
+            continue
+        gate = None
+        for name in ("g_attn", "g_ve"):
+            if hasattr(attn, name) and isinstance(getattr(attn, name), torch.Tensor):
+                gate = getattr(attn, name)
+                break
+        if gate is not None:
+            sa_list.append(gate.detach().float().cpu().view(()))
+    sa_lambdas = torch.stack(sa_list).view(-1) if len(sa_list) > 0 else torch.zeros(0, dtype=skip_w.dtype)
 
     out["present"] = True
     S = skip_w.numel() + lambdas.numel() + sa_lambdas.numel()
     out["length"] = int(S)
-    L = len(model.blocks)
     out["num_layers"] = int(L)
 
     def nz_mask(x: torch.Tensor):
@@ -76,11 +101,12 @@ def analyze_scalars(model: nn.Module, hparams: Dict[str, Any], zero_threshold: f
             "tensor": lambdas,
             "near_zero_mask": nz_mask(lambdas),
         },
-        "sa_lambdas": {
+    }
+    if sa_lambdas.numel() > 0:
+        groups["sa_lambdas"] = {
             "tensor": sa_lambdas,
             "near_zero_mask": nz_mask(sa_lambdas),
-        },
-    }
+        }
 
     # Summaries
     for k, g in groups.items():
@@ -97,14 +123,33 @@ def analyze_scalars(model: nn.Module, hparams: Dict[str, Any], zero_threshold: f
     fully_off_layers = []
     per_layer = []
     for i in range(L):
+        lam_val = float(lambdas[i].item()) if i < lambdas.numel() else float("nan")
+        lam_list = [lam_val]
+        lam_nz_list = [bool(abs(lam_val) <= zero_threshold)]
+
+        # Try to find attention gate for this specific layer for per-layer display
+        attn = getattr(model.blocks[i], "attn", None)
+        sa_val_list = None
+        sa_nz_list = None
+        if attn is not None:
+            gate_t = None
+            for name in ("g_attn", "g_ve"):
+                if hasattr(attn, name) and isinstance(getattr(attn, name), torch.Tensor):
+                    gate_t = getattr(attn, name)
+                    break
+            if gate_t is not None:
+                v = float(gate_t.detach().float().cpu().view(()).item())
+                sa_val_list = [v]
+                sa_nz_list = [bool(abs(v) <= zero_threshold)]
+
         layer_info = {
             "layer": i,
             "skip_w": float(skip_w[i].item()),
             "skip_w_near_zero": bool(abs(skip_w[i].item()) <= zero_threshold),
-            "lambda": [float(lambdas[i, 0].item()), float(lambdas[i, 1].item())],
-            "lambda_near_zero": [bool(abs(lambdas[i, 0].item()) <= zero_threshold), bool(abs(lambdas[i, 1].item()) <= zero_threshold)],
-            "sa_lambda": [float(sa_lambdas[i, 0].item()), float(sa_lambdas[i, 1].item())],
-            "sa_lambda_near_zero": [bool(abs(sa_lambdas[i, 0].item()) <= zero_threshold), bool(abs(sa_lambdas[i, 1].item()) <= zero_threshold)],
+            "lambda": lam_list,
+            "lambda_near_zero": lam_nz_list,
+            "sa_lambda": sa_val_list,
+            "sa_lambda_near_zero": sa_nz_list,
         }
         if layer_info["skip_w_near_zero"]:
             fully_off_layers.append(i)
@@ -114,7 +159,7 @@ def analyze_scalars(model: nn.Module, hparams: Dict[str, Any], zero_threshold: f
     out["per_layer"] = per_layer
     out["layers_with_skip_near_zero"] = fully_off_layers
     out["any_near_zero"] = any(
-        g["num_near_zero"] > 0 for g in out["groups"].values()
+        g.get("num_near_zero", 0) > 0 for g in out["groups"].values()
     )
     return out
 
@@ -249,10 +294,19 @@ def format_report_text(report: Dict[str, Any]) -> str:
         for li in sc.get("per_layer", []):
             i = li["layer"]
             def mark(val, is_nz):
-                return f"{val:.4f}" + ("*" if is_nz else "")
+                try:
+                    return f"{val:.4f}" + ("*" if is_nz else "")
+                except Exception:
+                    return str(val)
+
+            def fmt_pair(vals, flags):
+                if vals is None or flags is None:
+                    return "-"
+                return ", ".join(mark(v, nz) for v, nz in zip(vals, flags))
+
             skip_s = mark(li["skip_w"], li["skip_w_near_zero"])
-            lam_s = ", ".join(mark(v, nz) for v, nz in zip(li["lambda"], li["lambda_near_zero"]))
-            sal_s = ", ".join(mark(v, nz) for v, nz in zip(li["sa_lambda"], li["sa_lambda_near_zero"]))
+            lam_s = fmt_pair(li.get("lambda"), li.get("lambda_near_zero"))
+            sal_s = fmt_pair(li.get("sa_lambda"), li.get("sa_lambda_near_zero"))
             lines.append(f"  {i:02d}: {skip_s} | [{lam_s}] | [{sal_s}]")
         if sc.get("any_near_zero"):
             lines.append("\nNote: values marked with * are near zero and may indicate unused pathways.")
