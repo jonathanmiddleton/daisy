@@ -106,6 +106,7 @@ class KimiLinearSelfAttention(nn.Module):
         self._conv_state = None
         self._seen = 0
         self._cache = Cache() if Cache is not None else None
+        self.g_ve = nn.Parameter(torch.tensor(10.0))
         # TODO init weights
 
     def reset_history(self):
@@ -114,15 +115,6 @@ class KimiLinearSelfAttention(nn.Module):
         self._seen = 0
         if self._cache is not None:
             self._cache = Cache()
-
-    def _mix_v_with_ve(self, v, ve, sa_lambdas):
-        if ve is None:
-            return v
-        lam0 = sa_lambdas[0].to(dtype=v.dtype)
-        lam1 = sa_lambdas[1].to(dtype=v.dtype)
-        ve_ = ve.to(dtype=v.dtype, device=v.device).view_as(v)
-        # print(f"lam0.device={lam0.device}, lam1.device={lam1.device}, v.device={v.device}, ve_.device={ve_.device}")
-        return lam0 * v + lam1 * ve_
 
     # @torch.compiler.disable()
     def _kda_eager(self, x, q, k, v, g, beta, rec, cu_seqlens, use_cache: bool):
@@ -137,8 +129,7 @@ class KimiLinearSelfAttention(nn.Module):
         o = self.o_norm(o, gp)
         return o, rec
 
-
-    def _forward_core(self, x: Tensor, ve: Optional[Tensor], sa_lambdas: Optional[Tensor], attn_mask: Optional[Tensor], use_cache: bool):
+    def _forward_core(self, x: Tensor, ve: Optional[Tensor],  attn_mask: Optional[Tensor], use_cache: bool):
         torch._assert(x.shape[0] == 1, "batch size must be 1") # TODO remove
         b, s, _ = x.shape
         # mode = "fused_recurrent" if s <= 64 and not self.training else self.mode
@@ -164,11 +155,14 @@ class KimiLinearSelfAttention(nn.Module):
             v = torch.nn.functional.silu(self.v_proj(x))
             conv_state = None
         g = self.f_proj(x)
+
+        # gated value embeddings
+        g_x = torch.sigmoid(self.g_ve).to(q.dtype)
+        v = g_x * v + (1.0 - g_x) * ve.view_as(v).to(q.dtype)
+
         # g = fused_kda_gate(g, self.A_log, self.head_k_dim, g_bias=self.dt_bias)
         q, k = (rearrange(t, "... (h d) -> ... h d", d=self.head_k_dim) for t in (q, k))
         v = rearrange(v, "... (h d) -> ... h d", d=self.head_v_dim)
-        if sa_lambdas is not None and ve is not None:
-            v = self._mix_v_with_ve(v, ve, sa_lambdas)
         rec = last_state["recurrent_state"] if isinstance(last_state, dict) else None
         beta = self.b_proj(x).sigmoid().to(dtype=torch.float32, device=x.device)
         o, rec = self._kda_eager(x, q, k, v, g, beta, rec, cu_seqlens, use_cache=use_cache)
@@ -184,17 +178,18 @@ class KimiLinearSelfAttention(nn.Module):
             o = pad_input(o.squeeze(0), indices, b, s)
         return o
 
+    # def                    (  x,        ve,                     block_mask=block_mask, attn_mask=attn_mask)
     # noinspection PyUnusedLocal
-    def forward(self, x: Tensor, ve: Tensor, sa_lambdas: Tensor, attn_mask: Tensor = None, sliding_window_num_blocks: Tensor = None, block_mask: Optional[Tensor] = None):
+    def forward(self, x: Tensor, ve: Tensor, attn_mask: Tensor = None, sliding_window_num_blocks: Tensor = None, block_mask: Optional[Tensor] = None):
         assert block_mask is None, "block_mask not supported for KimiLinearSelfAttention"
-        return self._forward_core(x, ve, sa_lambdas, attn_mask, use_cache=False)
+        return self._forward_core(x, ve, attn_mask, use_cache=False)
 
     # noinspection PyUnusedLocal
-    def prefill(self, x: Tensor, ve: Tensor, sa_lambdas: Tensor, attn_mask: Tensor = None, debug: bool = False):
-        y = self._forward_core(x, ve, sa_lambdas, attn_mask, use_cache=True)
+    def prefill(self, x: Tensor, ve: Tensor,  attn_mask: Tensor = None, debug: bool = False):
+        y = self._forward_core(x, ve,  attn_mask, use_cache=True)
         return y, None, None
 
     # noinspection PyUnusedLocal
-    def step(self, x: Tensor, k_ctx: Optional[Tensor], v_ctx: Optional[Tensor], pos: int, ve: Tensor, sa_lambdas: Tensor, window: int | None):
-        y = self._forward_core(x, ve, sa_lambdas, attn_mask=None, use_cache=True)
+    def step(self, x: Tensor, k_ctx: Optional[Tensor], v_ctx: Optional[Tensor], pos: int, ve: Tensor, window: int | None):
+        y = self._forward_core(x, ve,  attn_mask=None, use_cache=True)
         return y, None, None
