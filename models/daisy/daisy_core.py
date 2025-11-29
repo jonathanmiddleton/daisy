@@ -39,17 +39,17 @@ class ZeroEmbedding(nn.Module):
 
         return self
 
-def _pick_value_embedding_layers(attn_layers):
+def _pick_value_embedding_layers(attn_layers, value_embeddings: bool):
     K = len(attn_layers)
-    if K < 6:
+    if K < 6 or not value_embeddings:
         return []
     attn_layers = sorted(attn_layers)
     return attn_layers[:3] + attn_layers[-3:]
 
-def _build_ve_modules(L: int, attn_layers: List[int], _in:int, _out:int):
-    ve_layers = _pick_value_embedding_layers(attn_layers)
+def _build_ve_modules(L: int, attn_layers: List[int], _in:int, _out:int, value_embeddings: bool):
+    ve_layers = _pick_value_embedding_layers(attn_layers, value_embeddings)
     if len(ve_layers) == 0:
-        return nn.ModuleList([])
+        return nn.ModuleList([ZeroEmbedding(_out)]*L)
     K = len(ve_layers) // 2
     embeds = [nn.Embedding(_in, _out) for _ in range(K)]
     ve_modules = embeds + [ZeroEmbedding(_out)]*(L-2*K) + embeds
@@ -146,7 +146,7 @@ class DaisyCore(nn.Module):
         self.attn_layers = [i for i in range(num_layers)] if attn_all_layers else _pick_attention_layers(num_layers, attn_impl=attn_impl)
         self.ve_layers = _pick_value_embedding_layers(self.attn_layers) if value_embeddings else []
         self.zero_embedding = ZeroEmbedding(end_dim=self.embed.weight.size(1), dtype=torch.bfloat16) # TODO strongly reconsider this
-        self.value_embeds = nn.ModuleList(_build_ve_modules(num_layers, self.attn_layers,vocab_size, model_dim))
+        self.value_embeds = nn.ModuleList(_build_ve_modules(num_layers, self.attn_layers,vocab_size, model_dim, value_embeddings))
 
         self.attn_impl_id = self.attn_impl_ids.get_attn_impl_id(attn_impl)
         self.blocks = nn.ModuleList(
