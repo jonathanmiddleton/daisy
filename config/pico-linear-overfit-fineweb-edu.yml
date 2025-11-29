@@ -41,8 +41,8 @@ grad_acc_steps: 1
 # Evaluations
 val_shards:
   - type: "fineweb-edu"
-    path: "data/fineweb-edu/edu_fineweb_val_*.bin"
-    target_tokens: 41_943_040
+    path: "data/overfit/edu_fineweb_overfit_1M.bin"
+    target_tokens: 1_000_000
     sequence_length: 65_536
 val_loss_every_tokens:    131_072_000
 # Checkpoints
