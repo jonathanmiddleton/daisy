@@ -39,22 +39,11 @@ class ZeroEmbedding(nn.Module):
 
         return self
 
-
-def pick_value_embedding_layers(attn_layers, M=None):
+def pick_value_embedding_layers(attn_layers):
     K = len(attn_layers)
-    if K == 0:
+    if K < 6:
         return []
-    if K == 1:
-        return attn_layers[:]  # trivial case
-
-    if M is None:
-        M = min(K, max(4, min(10, round(0.6 * K))))
-
-    if M >= K:
-        return attn_layers[:]
-
-    idx = [int(round(i * (K - 1) / (M - 1))) for i in range(M)]
-    return [attn_layers[i] for i in sorted(set(idx))]
+    return attn_layers[:3] + attn_layers[-3:]
 
 def build_attn_mask(input_seq: Tensor, window_size: int, eos_token_id: int):
     T = input_seq.size(-1)
