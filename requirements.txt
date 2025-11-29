@@ -12,5 +12,7 @@ pandas
 datasets
 tiktoken
 transformers
+einops # KimiLinear
 pytest
+
 

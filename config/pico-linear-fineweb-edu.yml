@@ -3,7 +3,7 @@ wandb_log: true
 wandb_project: 'daisy'
 wandb_run_name: 'pico-linear-fineweb-edu'
 # Torch config
-torch.coordinate_descent_tuning: true
+torch.coordinate_descent_tuning: false
 # Pretraining configuration
 train_shards: "data/overfit/edu_fineweb_overfit_1M.bin"
 target_tokens: 1_000_000_000
