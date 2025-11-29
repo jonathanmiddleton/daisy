@@ -1,7 +1,7 @@
 import os
 from functools import lru_cache
 from math import floor, log2, ceil
-from typing import Any, Optional
+from typing import Any, Optional, List
 
 import torch
 from torch import nn, Tensor, SymInt
@@ -17,7 +17,7 @@ def next_multiple_of_n(v: float | int, *, n: int):
     return next(x for x in range(n, int(v) + 1 + n, n) if x >= v)
 
 class ZeroEmbedding(nn.Module):
-    def __init__(self, end_dim: int, dtype: torch.dtype = torch.int64, *args: Any, **kwargs: Any):
+    def __init__(self, end_dim: int, dtype: torch.dtype = torch.bfloat16, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
         self.end_dim = end_dim
         self.zero = nn.Buffer(torch.zeros(1, dtype=dtype), persistent=False)  # anchor for device/dtype so that we're moved when .to is called
@@ -27,7 +27,7 @@ class ZeroEmbedding(nn.Module):
         # Return a zero tensor shaped like an embedding(x)
         out_shape = (*x.shape, self.end_dim)
         #TODO cache these?
-        return torch.zeros(out_shape, dtype=self.zero.dtype, device=x.device)
+        return torch.zeros(out_shape, dtype=self.zero.dtype, device=x.device, requires_grad=False)
 
     def _apply(self, fn, recurse=True):
         super()._apply(fn, recurse)
@@ -39,11 +39,21 @@ class ZeroEmbedding(nn.Module):
 
         return self
 
-def pick_value_embedding_layers(attn_layers):
+def _pick_value_embedding_layers(attn_layers):
     K = len(attn_layers)
     if K < 6:
         return []
+    attn_layers = sorted(attn_layers)
     return attn_layers[:3] + attn_layers[-3:]
+
+def _build_ve_modules(L: int, attn_layers: List[int], _in:int, _out:int):
+    ve_layers = _pick_value_embedding_layers(attn_layers)
+    if len(ve_layers) == 0:
+        return nn.ModuleList([])
+    K = len(ve_layers) // 2
+    embeds = [nn.Embedding(_in, _out) for _ in range(K)]
+    ve_modules = embeds + [ZeroEmbedding(_out)]*(L-2*K) + embeds
+    return ve_modules
 
 def build_attn_mask(input_seq: Tensor, window_size: int, eos_token_id: int):
     T = input_seq.size(-1)
@@ -63,7 +73,7 @@ def build_attn_mask(input_seq: Tensor, window_size: int, eos_token_id: int):
     return attn_mask
 
 
-def pick_attention_layers(L, d_model=None, num_heads=None, attn_impl='standard', attn_density=0.75):
+def _pick_attention_layers(L, d_model=None, num_heads=None, attn_impl='standard', attn_density=0.75):
     if L <= 0: return []
     if L == 1: return [0]
     if L == 2: return [0, 1]
@@ -133,12 +143,9 @@ class DaisyCore(nn.Module):
         self.skip_map = _get_skip_map(num_layers)
         self.eos_token_id = int(eos_token_id)
         self.embed = nn.Embedding(vocab_size, model_dim)
-        self.attn_layers = [i for i in range(num_layers)] if attn_all_layers else pick_attention_layers(num_layers, attn_impl=attn_impl)
-        self.ve_layers = pick_value_embedding_layers(self.attn_layers) if value_embeddings else []
+        self.attn_layers = [i for i in range(num_layers)] if attn_all_layers else _pick_attention_layers(num_layers, attn_impl=attn_impl)
         self.zero_embedding = ZeroEmbedding(end_dim=self.embed.weight.size(1), dtype=torch.bfloat16) # TODO strongly reconsider this
-        self.value_embeds = nn.ModuleList([
-            nn.Embedding(vocab_size, model_dim) if i in self.ve_layers else self.zero_embedding for i in range(num_layers)
-        ])
+        self.value_embeds = nn.ModuleList(_build_ve_modules(num_layers, self.attn_layers,vocab_size, model_dim))
 
         self.attn_impl_id = self.attn_impl_ids.get_attn_impl_id(attn_impl)
         self.blocks = nn.ModuleList(
