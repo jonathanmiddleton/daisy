@@ -289,27 +289,58 @@ def format_report_text(report: Dict[str, Any]) -> str:
             lines.append(f"  near-zero: {g['num_near_zero']} elements ({100.0*g['frac_near_zero']:.2f}%)")
         if sc.get("layers_with_skip_near_zero"):
             lines.append(f"layers with near-zero skip weight: {sc['layers_with_skip_near_zero']}")
-        # Per-layer compact print
-        lines.append("\nPer-layer (i: skip | lambda | sa_lambda):")
+        # Per-layer compact print (with sigmoid display for g_x and g_ve)
+        header = "Per-layer (i: Long Skip | Sideband Res. Gate* | V. Embd Gate*)"
+        lines.append("\n" + header)
+
+        # Column widths based on header segments to align values with headers
+        col1_label = "Long Skip"
+        col2_label = "Sideband Res. Gate*"
+        col3_label = "V. Embd Gate*"
+        w1, w2, w3 = len(col1_label), len(col2_label), len(col3_label)
+
+        def fmt_float(val: float) -> str:
+            try:
+                return f"{val:.4f}"
+            except Exception:
+                return str(val)
+
+        def sigmoid_val(x: float) -> float:
+            try:
+                return float(torch.sigmoid(torch.tensor(float(x))).item())
+            except Exception:
+                return x
+
         for li in sc.get("per_layer", []):
             i = li["layer"]
-            def mark(val, is_nz):
-                try:
-                    return f"{val:.4f}" + ("*" if is_nz else "")
-                except Exception:
-                    return str(val)
 
-            def fmt_pair(vals, flags):
-                if vals is None or flags is None:
-                    return "-"
-                return ", ".join(mark(v, nz) for v, nz in zip(vals, flags))
+            # Long Skip (raw)
+            skip_raw = li.get("skip_w")
+            skip_s = fmt_float(skip_raw).rjust(w1)
 
-            skip_s = mark(li["skip_w"], li["skip_w_near_zero"])
-            lam_s = fmt_pair(li.get("lambda"), li.get("lambda_near_zero"))
-            sal_s = fmt_pair(li.get("sa_lambda"), li.get("sa_lambda_near_zero"))
-            lines.append(f"  {i:02d}: {skip_s} | [{lam_s}] | [{sal_s}]")
-        if sc.get("any_near_zero"):
-            lines.append("\nNote: values marked with * are near zero and may indicate unused pathways.")
+            # Sideband Res. Gate (sigmoid of Block.g_x)
+            lam_vals = li.get("lambda")
+            if lam_vals is None:
+                lam_disp = "-"
+            else:
+                # Expect a single scalar in list; show as [value]
+                lam_sig = sigmoid_val(lam_vals[0])
+                lam_disp = f"[{fmt_float(lam_sig)}]"
+            lam_s = lam_disp.rjust(w2)
+
+            # V. Embd Gate (sigmoid of CausalSelfAttention.g_ve)
+            sa_vals = li.get("sa_lambda")
+            if sa_vals is None:
+                sa_disp = "-"
+            else:
+                sa_sig = sigmoid_val(sa_vals[0])
+                sa_disp = f"[{fmt_float(sa_sig)}]"
+            sal_s = sa_disp.rjust(w3)
+
+            lines.append(f"  {i:02d}: {skip_s} | {lam_s} | {sal_s}")
+
+        # Footnote clarifying transformed values
+        lines.append("* sigmoid of parameter value")
 
     return "\n".join(lines)
 
