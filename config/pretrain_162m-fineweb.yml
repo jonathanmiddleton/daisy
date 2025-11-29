@@ -6,8 +6,8 @@ wandb_run_name: '162m-pretrain-fineweb'
 torch.coordinate_descent_tuning: false
 # Pretraining configuration
 train_shards: "data/fineweb-edu/edu_fineweb_train_*.bin"
-target_tokens: 2_000_000_000
-cooldown_frac: 1
+target_tokens: 1_000_000_000
+cooldown_frac: 0.5
 learning_rate_schedule: linear_decay
 learning_rate_floor: 0.1
 training_sequence_length: 65536
