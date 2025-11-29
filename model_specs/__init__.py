@@ -1,5 +1,3 @@
-
-
 from pathlib import Path
 from typing import Any, Dict
 from .model_spec import ModelSpec, build_model_dict
@@ -12,7 +10,8 @@ def resolve_model_spec_path(name_or_path: str) -> Path:
     Resolve a model spec identifier to a concrete file path.
     Accepts:
       - Absolute/relative file paths to a YAML file.
-      - Bare names referencing files inside this package directory (with or without .yml/.yaml).
+      - Bare names referencing files inside this package directory (with or without .yml/.yaml),
+        including any subdirectories.
     Returns a Path that exists or raises FileNotFoundError.
     """
     # Direct path first
@@ -20,21 +19,20 @@ def resolve_model_spec_path(name_or_path: str) -> Path:
     if p.exists():
         return p
 
-    # Try relative to this package directory
+    # Try relative to this package directory (recursively)
     base = Path(__file__).resolve().parent
 
-    # If user provided a name with extension, check directly under package
-    named = base / name_or_path
-    if named.exists():
-        return named
-
-    # Try adding common YAML extensions under package dir
-    cand1 = base / f"{name_or_path}.yml"
-    cand2 = base / f"{name_or_path}.yaml"
-    if cand1.exists():
-        return cand1
-    if cand2.exists():
-        return cand2
+    # If name with extension, search for that filename under base
+    if "." in name_or_path:
+        for path in base.rglob(name_or_path):
+            if path.is_file():
+                return path
+    else:
+        # Try adding common YAML extensions under package dir, recursively
+        for candidate_name in (name_or_path, f"{name_or_path}.yml", f"{name_or_path}.yaml"):
+            for path in base.rglob(candidate_name):
+                if path.is_file():
+                    return path
 
     # As a last attempt, allow bare files in current working directory with YAML extensions
     cwd1 = Path(f"{name_or_path}.yml")
@@ -48,11 +46,13 @@ def resolve_model_spec_path(name_or_path: str) -> Path:
         f"Model spec '{name_or_path}' not found under {base} or as a file path"
     )
 
-def override_model_spec(spec:ModelSpec, overrides: dict):
-    for k,v in overrides.items():
-        if hasattr(spec,k):
-            setattr(spec,k,v)
+
+def override_model_spec(spec: ModelSpec, overrides: dict):
+    for k, v in overrides.items():
+        if hasattr(spec, k):
+            setattr(spec, k, v)
     return spec
+
 
 def load_model_spec(name_or_path: str, overrides: dict | None = None) -> ModelSpec:
     """
