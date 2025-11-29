@@ -15,6 +15,55 @@ cd "$SCRIPT_DIR"
 export PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH-}"
 export TORCH_LOGS=recompiles,graph_breaks
 
+# Usage/help text
+print_help() {
+  cat <<'EOF'
+Usage:
+  ./run.sh [CONFIG ...] [FLAGS/OVERRIDES...]
+
+Where CONFIG can be:
+  - a YAML file path (e.g., config/pretrain/nano-dclm.yml)
+  - a quoted glob pattern matching YAML files (e.g., "config/**/*.yml")
+
+Flags forwarded to the Python runner (examples):
+  -n NPROC              Number of processes per node (torchrun when >1)
+  -p CHECKPOINT         Initial checkpoint path
+  -s BEGIN_SHARD        BEGIN_SHARD environment value
+  -r RUN_ID             Base RUN_ID for the run(s)
+  --full_windows        Example boolean flag forwarded as --full_windows=true
+  --any-long-opt        Any additional long options are forwarded
+
+Overrides form a Cartesian product (handled by training.runner):
+  key=v1,v2  another_key=x,y  -> runs for all combinations
+
+Examples:
+  ./run.sh config/pretrain/nano-dclm.yml lr=1e-3,1e-4 wd=0,0.1
+  ./run.sh config/pretrain/nano-dclm.yml config_old/pico-linear-fineweb-edu.yml -n 8 --full_windows lr=1e-3,1e-4
+  ./run.sh "config/**/*.yml" -n 8 head_params_lr=0.7,0.8
+
+Notes:
+  - Multiple CONFIGs or glob patterns will be executed sequentially; failures are logged and the script continues to the next.
+  - If no CONFIGs are detected but arguments are provided, run.sh delegates to training.runner unchanged.
+  - Use -h or --help to show this message.
+EOF
+}
+
+# Show help when no arguments are provided
+if [[ $# -eq 0 ]]; then
+  print_help
+  exit 0
+fi
+
+# Show help when -h/--help is present anywhere in the args
+for _arg in "$@"; do
+  case "$_arg" in
+    -h|--help)
+      print_help
+      exit 0
+      ;;
+  esac
+done
+
 # Enable safe globbing: unmatched globs expand to nothing instead of literal strings
 shopt -s nullglob 2>/dev/null || true
 # Enable ** if supported (bash >= 4); ignore if unsupported
