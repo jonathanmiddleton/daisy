@@ -90,6 +90,7 @@ class CausalSelfAttention(nn.Module):
         self.attn_scale = 0.12
         self.last_q = None
         self.last_k = None
+        self.g_ve = nn.Parameter(torch.tensor(10.0))
 
         if is_flex_available(dynamic_shapes=self.dynamic_shapes): # dynamic shapes fail because of implied constraints within BlockMask
             self.forward = self.forward_flex
@@ -120,20 +121,19 @@ class CausalSelfAttention(nn.Module):
         return q, k, v
 
 
-    def _qkv_common(self, x: torch.Tensor, ve: torch.Tensor, sa_lambdas: torch.Tensor):
+    def _qkv_common(self, x: torch.Tensor, ve: torch.Tensor):
         q, k, v = self._calc_qkv(x)
         dtype = q.dtype
-        sa_lambdas = sa_lambdas.to(dtype)
-        ve = ve.to(dtype)
-        v = sa_lambdas[0] * v + sa_lambdas[1] * ve.view_as(v)
+        g_x = torch.sigmoid(self.g_ve).to(dtype)
+        v = g_x * v + (1.0 - g_x) * ve.view_as(v).to(dtype)
         q_ = q.transpose(1, 2)
         k_ = k.transpose(1, 2)
         v_ = v.transpose(1, 2)
         return q_, k_, v_
 
-    def _sdpa_common(self, x: torch.Tensor, ve: torch.Tensor, sa_lambdas: torch.Tensor, attn_mask: Optional[Tensor] = None):
+    def _sdpa_common(self, x: torch.Tensor, ve: torch.Tensor,  attn_mask: Optional[Tensor] = None):
         B, T = x.size(0), x.size(1)
-        q_, k_, v_ = self._qkv_common(x, ve, sa_lambdas)
+        q_, k_, v_ = self._qkv_common(x, ve)
         if attn_mask is not None:
             y = torch.nn.functional.scaled_dot_product_attention(q_, k_, v_, is_causal=False, attn_mask=attn_mask, scale=self.attn_scale)
         else:
@@ -142,35 +142,35 @@ class CausalSelfAttention(nn.Module):
         y = torch.nn.functional.linear(y, self.qkvo_w[3])
         return y, k_.transpose(1, 2), v_.transpose(1, 2), q_.transpose(1, 2)
 
-    def forward_sdpa(self, x: torch.Tensor, ve: torch.Tensor, sa_lambdas: torch.Tensor, attn_mask: Tensor, block_mask: Optional[Tensor] = None):
-        y, _, _, _ = self._sdpa_common(x, ve, sa_lambdas, attn_mask=attn_mask)
+    def forward_sdpa(self, x: torch.Tensor, ve: torch.Tensor,  attn_mask: Tensor, block_mask: Optional[Tensor] = None):
+        y, _, _, _ = self._sdpa_common(x, ve,  attn_mask=attn_mask)
         return y
 
-    def forward_flex(self, x: torch.Tensor, ve: torch.Tensor, sa_lambdas: torch.Tensor, block_mask: BlockMask, attn_mask: Tensor):
+    def forward_flex(self, x: torch.Tensor, ve: torch.Tensor,  block_mask: BlockMask, attn_mask: Tensor):
         B, T = x.size(0), x.size(1)
-        q_, k_, v_ = self._qkv_common(x, ve, sa_lambdas)
+        q_, k_, v_ = self._qkv_common(x, ve)
         y = _flex_call(q_, k_, v_, block_mask=block_mask, scale=self.attn_scale)
         y = y.transpose(1, 2).contiguous().view(B, T, self.m_dim)
         y = torch.nn.functional.linear(y, self.qkvo_w[3])
         return y
 
-    def prefill(self, x: torch.Tensor, ve: torch.Tensor, sa_lambdas: torch.Tensor, attn_mask: Tensor = None, debug: bool = False):
+    def prefill(self, x: torch.Tensor, ve: torch.Tensor,  attn_mask: Tensor = None, debug: bool = False):
         #attn_mask: for future document-causal masking
-        y, k, v, q = self._sdpa_common(x, ve, sa_lambdas)
+        y, k, v, q = self._sdpa_common(x, ve)
 
         if debug:
             self.last_q = q
             self.last_k = k
         return y, k.transpose(1, 2), v.transpose(1, 2)
 
-    def step(self, x, k_ctx: Tensor, v_ctx: Tensor, pos: int, ve: Tensor, sa_lambdas: Tensor, window: int):
+    def step(self, x, k_ctx: Tensor, v_ctx: Tensor, pos: int, ve: Tensor, window: int):
         B, T = x.size(0), 1
         q, k, v = self._calc_qkv_pos(x, pos)
         dtype = q.dtype
 
         ve = ve.to(dtype)
-        sa_lambdas = sa_lambdas.to(dtype)
-        v = sa_lambdas[0] * v + sa_lambdas[1] * ve.view_as(v)
+        g_x = torch.sigmoid(self.g_ve).to(dtype)
+        v = g_x * v + (1.0 - g_x) * ve.view_as(v).to(dtype)
 
         n = k_ctx.size(1)
         r = n if window is None else min(n, max(window - 1, 0))

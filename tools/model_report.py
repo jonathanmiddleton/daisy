@@ -44,33 +44,25 @@ def analyze_scalars(model: nn.Module, hparams: Dict[str, Any], zero_threshold: f
         "groups": {},
         "per_layer": [],
     }
-    scalars = getattr(model, "scalars", None)
-    if scalars is None:
-        for name, t in model.state_dict().items():
-            if name.endswith("scalars") and t.ndim == 1:
-                scalars = t
-                break
 
-    if scalars is None:
+    if getattr(model, "scalars", None) is not None:
+        # v1 model
+        L = len(model.blocks)
+        s = model.scalars.view(-1)
+        skip_w = s[:L]
+        lambdas = s[1 * L:3 * L].view(L, 2)
+        sa_lambdas = s[3 * L:5 * L].view(L, 2)
+    else:
+        # v2 model
+        skip_w = [model.skip_weights.detach().float().cpu()]
+        # TODO finish refactor for gates
         return out
 
     out["present"] = True
-    s = scalars.detach().float().cpu()
-    S = s.numel()
+    S = skip_w.numel() + lambdas.numel() + sa_lambdas.numel()
     out["length"] = int(S)
-    L_from_hp = int(hparams.get("num_layers", 0) or 0)
-    # assume scalars are 1 skip weight, 2 lambdas, and 2 sa_lambdas per layer
-    L = L_from_hp if (L_from_hp and S % 5 == 0 and S // 5 == L_from_hp) else (S // 5)
+    L = len(model.blocks)
     out["num_layers"] = int(L)
-
-    if L <= 0 or S < 5 * L:
-        out["error"] = f"Unexpected scalars shape: length={S}, num_layers={L}"
-        return out
-
-    # TODO dont hardcode
-    skip_w = s[:L]
-    lambdas = s[1 * L:3 * L].view(-1, 2)
-    sa_lambdas = s[3 * L:5 * L].view(-1, 2)
 
     def nz_mask(x: torch.Tensor):
         return (x.abs() <= zero_threshold)

@@ -41,8 +41,20 @@ def derive_named_param_groups(model: nn.Module) -> dict[str, list[nn.Parameter]]
     # Embedding parameters
     embed_params = [*model.embed.parameters(),
                     *model.value_embeds.parameters()] if model.value_embeds is not None else [*model.embed.parameters()]
-    # Learned scalar gates
-    scalar_params = [model.scalars]
+
+    if getattr(model, "scalars", None) is not None:
+        # v1 model
+        scalar_params = [*model.scalars.parameters()]
+    else:
+        # v2 model
+        scalar_params = [model.skip_weights]
+        for b in model.blocks:
+            if getattr(b, "g_x", None) is not None:
+                scalar_params.append(b.g_x)
+            attn = getattr(b, "attn", None)
+            if attn is not None and getattr(attn, "g_ve", None) is not None:
+                scalar_params.append(attn.g_ve)
+
     # Output head weights
     a = model.embed.weight
     b = model.lm_head_w
@@ -57,6 +69,16 @@ def derive_named_param_groups(model: nn.Module) -> dict[str, list[nn.Parameter]]
     params_collections = [p for p in params_collections if p is not None]
     optimized_parameters_set = {p for params in params_collections if params for p in params}
     all_params = set(model.parameters())
+    missing = all_params - optimized_parameters_set  # in all_params but not in optimized_parameters_set
+    extra = optimized_parameters_set - all_params  # in optimized_parameters_set but not in all_params
+
+    if missing or extra:
+        name_by_param = {p: name for name, p in model.named_parameters()}
+        missing_names = [name_by_param.get(p, f"<unnamed param {p!r}>") for p in missing]
+        extra_names = [name_by_param.get(p, f"<unnamed param {p!r}>") for p in extra]
+        logger.error(f"Missing from optimized_parameters_set: {missing_names}")
+        logger.error(f"Extra in optimized_parameters_set: {extra_names}")
+
     assert optimized_parameters_set == all_params
     assert len(optimized_parameters_set) == sum(len(lst) for lst in params_collections)
 

@@ -144,7 +144,6 @@ class DaisyCore(nn.Module):
         self.eos_token_id = int(eos_token_id)
         self.embed = nn.Embedding(vocab_size, model_dim)
         self.attn_layers = [i for i in range(num_layers)] if attn_all_layers else _pick_attention_layers(num_layers, attn_impl=attn_impl)
-        self.ve_layers = _pick_value_embedding_layers(self.attn_layers) if value_embeddings else []
         self.zero_embedding = ZeroEmbedding(end_dim=self.embed.weight.size(1), dtype=torch.bfloat16) # TODO strongly reconsider this
         self.value_embeds = nn.ModuleList(_build_ve_modules(num_layers, self.attn_layers,vocab_size, model_dim, value_embeddings))
 
@@ -164,11 +163,7 @@ class DaisyCore(nn.Module):
                 nn.init.normal_(self.lm_head_w, mean=0.0, std=0.02)
         self.window_size = window_size
         assert num_layers % 2 == 0
-        self.scalars = nn.Parameter(torch.cat([
-            torch.ones(num_layers),  # skip_weights
-            *[torch.tensor([1.0, 0.0]) for _ in range(num_layers)],  # residual mixing
-            *[torch.tensor([0.5, 0.5]) for _ in range(num_layers)],  # value embedding mixing
-        ]))
+        self.skip_weights = nn.Parameter(torch.ones(num_layers))
         self.desc = desc  # non-functional, self-describing metadata
 
     def reset_history(self):
@@ -238,9 +233,7 @@ class DaisyCore(nn.Module):
         x = x0 = norm(self.embed(input_seq)[None])
 
         skip_map = self.skip_map
-        skip_weights = self.scalars[:L]
-        lambdas = self.scalars[1 * L:3 * L].view(-1, 2)
-        sa_lambdas = self.scalars[3 * L:5 * L].view(-1, 2)
+        skip_weights = self.skip_weights
 
         skip_connections = []
 
@@ -256,7 +249,7 @@ class DaisyCore(nn.Module):
         for i in range(L):
             if i in skip_map:
                 x = x + skip_weights[skip_map[i]] * skip_connections[skip_map[i]]
-            x = self.blocks[i](x, ve[i], x0, lambdas[i], sa_lambdas[i], block_mask=block_masks[i], attn_mask=attn_mask)
+            x = self.blocks[i](x, ve[i], x0,  block_mask=block_masks[i], attn_mask=attn_mask)
             skip_connections.append(x)
 
         x = norm(x)
@@ -290,10 +283,8 @@ class DaisyCore(nn.Module):
         ve = self.compute_value_embeddings(token_id)
 
         skip_map = self.skip_map
-        scalars = self.scalars
-        skip_weights = scalars[:L]
-        lambdas = scalars[1 * L:3 * L].view(-1, 2)
-        sa_lambdas = scalars[3 * L:5 * L].view(-1, 2)
+        skip_weights = self.skip_weights
+
         x = x0
         k_new_list = []
         v_new_list = []
@@ -301,7 +292,7 @@ class DaisyCore(nn.Module):
         for i in range(L):
             if i in skip_map:
                 x = x + skip_weights[skip_map[i]] * skip_connections[skip_map[i]]
-            y, k_new, v_new = self.blocks[i].step(x, ve[i], x0, k_ctxs[i], v_ctxs[i], pos, lambdas[i], sa_lambdas[i], window)
+            y, k_new, v_new = self.blocks[i].step(x, ve[i], x0, k_ctxs[i], v_ctxs[i], pos, window)
             x = y
             skip_connections.append(x)
             k_new_list.append(k_new)
@@ -310,6 +301,7 @@ class DaisyCore(nn.Module):
         logits = F.linear(x.flatten(end_dim=1).bfloat16(), self.lm_head_w.bfloat16()).float()
         return logits, k_new_list, v_new_list
 
+# TODO why is window unused?
     def prefill(self, input_seq: Tensor, window: Optional[int] = None, debug: bool = False): #TODO   merge prefill/forward
         assert input_seq.ndim == 2
         B, T = input_seq.shape
@@ -328,15 +320,13 @@ class DaisyCore(nn.Module):
         ve = self.compute_value_embeddings(input_seq)
 
         skip_map = self.skip_map
-        skip_weights = self.scalars[:L]
-        lambdas = self.scalars[1 * L:3 * L].view(-1, 2)
-        sa_lambdas = self.scalars[3 * L:5 * L].view(-1, 2)
+        skip_weights = self.skip_weights
 
         k_list, v_list, skip_connections = [], [], []
         for i in range(L):
             if i in skip_map:
                 x = x + skip_weights[skip_map[i]] * skip_connections[skip_map[i]]
-            x, k, v = self.blocks[i].prefill(x, ve[i], x0, lambdas[i], sa_lambdas[i], debug=debug)
+            x, k, v = self.blocks[i].prefill(x, ve[i], x0, debug=debug)
             skip_connections.append(x)
             k_list.append(k)
             v_list.append(v)

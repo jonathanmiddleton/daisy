@@ -17,7 +17,6 @@ class AttentionProtocol(Protocol):
         self,
         x: Tensor,
         ve: Tensor,
-        sa_lambdas: Tensor,
         attn_mask: Optional[Tensor] = None,
         block_mask: Optional[Tensor] = None,
     ) -> Tensor: ...
@@ -28,7 +27,6 @@ class AttentionProtocol(Protocol):
         self,
         x: Tensor,
         ve: Tensor,
-        sa_lambdas: Tensor,
         attn_mask: Tensor = None,
         debug: bool = False,
     ) -> Tuple[Tensor, Optional[Tensor], Optional[Tensor]]: ...
@@ -40,6 +38,5 @@ class AttentionProtocol(Protocol):
         v_ctx: Optional[Tensor],
         pos: int,
         ve: Tensor,
-        sa_lambdas: Tensor,
         window: Optional[int],
     ) -> Tuple[Tensor, Optional[Tensor], Optional[Tensor]]: ...
