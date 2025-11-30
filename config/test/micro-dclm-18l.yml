@@ -46,4 +46,4 @@ checkpoint_warmup_tokens:   1_000_000_001
 checkpoint_per_n_tokens:     1
 save_checkpoint: true
 # Model Definition
-model_spec: daisy_micro
+model_spec: daisy_micro-18l
