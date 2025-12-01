@@ -6,7 +6,7 @@ wandb_run_name: 'milli-dclm-lr-scale-scan'
 torch.coordinate_descent_tuning: false
 # Pretraining configuration
 train_shards: "data/dclm_baseline/dclm_baseline_train_*.bin"
-target_tokens: 500_000_000
+target_tokens: 98_590_720
 cooldown_frac: 0.0
 learning_rate_schedule: cosine_decay
 learning_rate_floor: 0.1
