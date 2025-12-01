@@ -3,7 +3,7 @@ wandb_log: true
 wandb_project: 'daisy'
 wandb_run_name: 'milli-dclm'
 # Torch config
-torch.coordinate_descent_tuning: true
+torch.coordinate_descent_tuning: false
 # Pretraining configuration
 train_shards: "data/dclm_baseline/dclm_baseline_train_*.bin"
 target_tokens: 18_000_000_000
