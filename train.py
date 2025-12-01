@@ -1,5 +1,6 @@
 import argparse
 import dataclasses
+import copy
 import os
 import sys
 from typing import List, Tuple
@@ -72,7 +73,11 @@ def main(argv: List[str] | None = None) -> int:
     if not combos:
         combos = [[]]
     for idx, combo in enumerate(combos):
-        a = dataclasses.replace(base_args)
+        # Important: use a deep copy so per-run mutations (e.g., lr_scale applied
+        # to nested optimizer param-group dicts) do not leak into other runs.
+        # dataclasses.replace() is a shallow copy and would share lists/dicts
+        # like `optimizers` across runs.
+        a = copy.deepcopy(base_args)
         a = apply_cli_overrides(a, [f"{k}={v}" for k, v in combo])
         run_id = base_run_id + idx
         run_args_list.append((run_id, a))
