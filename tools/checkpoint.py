@@ -1,3 +1,4 @@
+from ctypes import DEFAULT_MODE
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -14,7 +15,7 @@ STANDARD_KEYS = {
     "best_val",  # float: best validation loss so far
 }
 
-UNWANTED_PREFIX = "_orig_mod."
+DEFAULT_PREFIX = "_orig_mod."
 
 
 @dataclass
@@ -27,7 +28,7 @@ class LoadedCheckpoint:
     progress_state: Optional[Dict[str, Any]] = None
 
 
-def _strip_prefix(state_dict: Dict[str, Any], prefix: str = UNWANTED_PREFIX) -> Dict[str, Any]:
+def _strip_prefix(state_dict: Dict[str, Any], prefix: str = DEFAULT_PREFIX) -> Dict[str, Any]:
     if not isinstance(state_dict, dict):
         return state_dict
     if not any(k.startswith(prefix) for k in state_dict.keys()):
@@ -38,6 +39,19 @@ def _strip_prefix(state_dict: Dict[str, Any], prefix: str = UNWANTED_PREFIX) -> 
             new_sd[k[len(prefix):]] = v
         else:
             new_sd[k] = v
+    return new_sd
+
+def restore_prefix(state_dict: Dict[str, Any], prefix: str = DEFAULT_PREFIX) -> Dict[str, Any]:
+    if not isinstance(state_dict, dict):
+        return state_dict
+    if not any(k.startswith(prefix) for k in state_dict.keys()):
+        return state_dict
+    new_sd = {}
+    for k, v in state_dict.items():
+        if k.startswith(prefix):
+            new_sd[k] = v
+        else:
+            new_sd[prefix+k] = v
     return new_sd
 
 
