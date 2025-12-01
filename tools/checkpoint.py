@@ -44,8 +44,6 @@ def _strip_prefix(state_dict: Dict[str, Any], prefix: str = DEFAULT_PREFIX) -> D
 def restore_prefix(state_dict: Dict[str, Any], prefix: str = DEFAULT_PREFIX) -> Dict[str, Any]:
     if not isinstance(state_dict, dict):
         return state_dict
-    if not any(k.startswith(prefix) for k in state_dict.keys()):
-        return state_dict
     new_sd = {}
     for k, v in state_dict.items():
         if k.startswith(prefix):
