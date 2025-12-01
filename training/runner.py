@@ -73,10 +73,34 @@ def build_run_cmd(
     extra_long_opts: List[str],
     singleton_overrides: List[Tuple[str, str]],
     grid_overrides: List[Tuple[str, List[str]]],
+    nnodes: int | None = None,
+    node_rank: int | None = None,
+    master_addr: str | None = None,
+    master_port: int | None = None,
 ) -> List[str]:
+    """Build the command to launch training.
 
-    cmd = ["torchrun", "--standalone", f"--nproc_per_node={nproc}"] if nproc > 1 else ["python"]
-    cmd = cmd + ["train.py", config]
+    Single-node behavior is preserved for compatibility with existing tests:
+    - nproc == 1 -> python train.py
+    - nproc > 1 and (nnodes is None or nnodes == 1) -> torchrun --standalone --nproc_per_node=n train.py
+
+    Multi-node behavior (when nnodes and rendezvous info are provided):
+    - torchrun --nnodes=NN --nproc_per_node=n --rdzv_backend=c10d --rdzv_endpoint=addr:port [--node_rank=R] train.py
+    """
+    if nproc == 1:
+        base_cmd = ["python"]
+    elif nnodes is None or nnodes == 1:
+        # Explicit single-node torchrun
+        base_cmd = ["torchrun", "--standalone", f"--nproc_per_node={nproc}"]
+    else:
+        # Multi-node torchrun
+        base_cmd = ["torchrun", f"--nproc_per_node={nproc}", f"--nnodes={nnodes}"]
+        # rendezvous configuration
+        if master_addr and master_port:
+            base_cmd += ["--rdzv_backend=c10d", f"--rdzv_endpoint={master_addr}:{master_port}"]
+        if node_rank is not None:
+            base_cmd += [f"--node_rank={node_rank}"]
+    cmd = base_cmd + ["train.py", config]
 
     if checkpoint:
         cmd.append(f"--init_checkpoint={checkpoint}")
@@ -129,6 +153,14 @@ def main(argv: List[str] | None = None) -> int:
     parser.add_argument("-p", dest="checkpoint", default="", help="init checkpoint path")
     parser.add_argument("-s", dest="begin_shard", default="", help="BEGIN_SHARD env value")
     parser.add_argument("-r", dest="run_id", default="1", help="RUN_ID env value for the run")
+    # Optional distributed multi-node arguments
+    parser.add_argument("--nnodes", dest="nnodes", type=int, default=None, help="Number of nodes for torchrun (omit or 1 for single-node)")
+    parser.add_argument("--node-rank", dest="node_rank", type=int, default=None, help="Node rank for multi-node runs")
+    parser.add_argument("--node_rank", dest="node_rank_alt", type=int, default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--master-addr", dest="master_addr", default=None, help="Master address (rendezvous endpoint host)")
+    parser.add_argument("--master_addr", dest="master_addr_alt", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--master-port", dest="master_port", type=int, default=None, help="Master port (rendezvous endpoint port)")
+    parser.add_argument("--master_port", dest="master_port_alt", type=int, default=None, help=argparse.SUPPRESS)
     # Accept passthrough flags like --full_windows and arbitrary long options; we'll collect them
 
     # Parse known args and capture the rest for override processing
@@ -138,6 +170,19 @@ def main(argv: List[str] | None = None) -> int:
     checkpoint = args.checkpoint or ""
     begin_shard = args.begin_shard or ""
     run_id = str(args.run_id)
+    # prefer explicit flags; fall back to env vars
+    nnodes = args.nnodes
+    node_rank = args.node_rank if args.node_rank is not None else args.node_rank_alt
+    master_addr = args.master_addr or args.master_addr_alt or os.environ.get("MASTER_ADDR")
+    master_port = (
+        args.master_port if args.master_port is not None else (args.master_port_alt if args.master_port_alt is not None else None)
+    )
+    if master_port is None:
+        env_mp = os.environ.get("MASTER_PORT")
+        master_port = int(env_mp) if env_mp and env_mp.isdigit() else None
+    if node_rank is None:
+        env_nr = os.environ.get("NODE_RANK")
+        node_rank = int(env_nr) if env_nr and env_nr.isdigit() else None
 
     # Split the leftover overrides/long options
     raw_tail = list(extras or [])
@@ -200,6 +245,8 @@ def main(argv: List[str] | None = None) -> int:
             logger.info(f"BEGIN_SHARD: {begin_shard}")
         logger.info(f"RUN_ID base: {base_run_id}")
         logger.info(f"Extra opts: {' '.join(passthrough_long_opts) if passthrough_long_opts else '(none)'}")
+        if nnodes and nnodes > 1:
+            logger.info(f"Distributed multi-node: nnodes={nnodes}, node_rank={node_rank}, master={master_addr}:{master_port}")
 
         # Separate singleton overrides from grids
         singletons: List[Tuple[str, str]] = []
@@ -220,6 +267,10 @@ def main(argv: List[str] | None = None) -> int:
             extra_long_opts=passthrough_long_opts,
             singleton_overrides=singletons,
             grid_overrides=grids,
+            nnodes=nnodes,
+            node_rank=node_rank,
+            master_addr=master_addr,
+            master_port=master_port,
         )
         logger.info("\n=== Running single multi-run process: " + shlex.join(cmd))
         rc = _stream_subprocess(cmd, log_fp)
