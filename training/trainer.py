@@ -260,8 +260,6 @@ class TrainingSession:
             lr_scale = float(getattr(self.args, "lr_scale", 1.0))
         except Exception:
             lr_scale = 1.0
-        if lr_scale == 1.0:
-            return
         try:
             for opt in (self.args.optimizers or []):
                 if isinstance(opt, dict) and "lr" in opt and isinstance(opt["lr"], (int, float)):
