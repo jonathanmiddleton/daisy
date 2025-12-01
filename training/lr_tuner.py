@@ -140,3 +140,19 @@ def lr_from_update_ratio(
         "global_scale": global_scale,
         "per_group": per_group_stats,
     }
+
+"""
+model = ...   
+optimizers = [...]   
+batch_iter = iter(train_dataloader)
+
+stats = lr_from_update_ratio(
+    model,
+    optimizers,
+    batch_iter,
+    compute_loss_and_tokens,
+    device="cuda",
+    num_steps=10,
+    target_ratio=1e-3,
+)
+"""
