@@ -102,17 +102,31 @@ def build_run_cmd(
             base_cmd += [f"--node_rank={node_rank}"]
     cmd = base_cmd + ["train.py", config]
 
-    if checkpoint:
-        cmd.append(f"--init_checkpoint={checkpoint}")
-    # include any extra pre-parsed long opts (already prefixed with --)
-    cmd.extend(extra_long_opts)
-    # add singleton overrides as --key=value
-    for k, v in singleton_overrides:
-        cmd.append(f"--{k}={v}")
-    # add grid overrides as --grid key=v1,v2
+    # Add grid overrides as proper options first so argparse in train.py can parse them
     for k, vals in grid_overrides:
         joined = ",".join(vals)
         cmd.append(f"--grid={k}={joined}")
+
+    # Everything else (including single-value overrides and passthrough long opts)
+    # must be passed as positional tokens after "--" so train.py captures them in
+    # its "overrides" list (it doesn't declare these as argparse options).
+    positional_overrides: List[str] = []
+
+    # Forward checkpoint as a config override token
+    if checkpoint:
+        positional_overrides.append(f"init_checkpoint={checkpoint}")
+
+    # Forward any extra long opts as override-style tokens; they may start with
+    # "--" (train.py strips it) or be plain key=value.
+    positional_overrides.extend(extra_long_opts)
+
+    # Forward singleton overrides as plain key=value tokens (no leading dashes)
+    for k, v in singleton_overrides:
+        positional_overrides.append(f"{k}={v}")
+
+    if positional_overrides:
+        cmd.append("--")
+        cmd.extend(positional_overrides)
 
     return cmd
 
