@@ -166,7 +166,14 @@ class CompiledRuntime:
         logger.info(f"Initial model report:\n{format_report_text(report)}")
 
     def reset_model_to_initial(self):
-        self.model.load_state_dict(self._initial_state, strict=True)
+        #noinspection PyBroadException
+        try:
+            self.model.load_state_dict(self._initial_state, strict=True)
+        except Exception as e:
+            # uncompiled models expect weight names without a prefix
+            from tools.checkpoint import strip_prefix
+            _sd = strip_prefix(self._initial_state)
+            self.model.load_state_dict(_sd, strict=True)
         self.model.zero_grad(set_to_none=True)
 
     def destroy(self):
