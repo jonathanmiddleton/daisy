@@ -6,7 +6,7 @@ wandb_run_name: 'milli-dclm-sweep'
 torch.coordinate_descent_tuning: true
 # Pretraining configuration
 train_shards: "data/dclm_baseline/dclm_baseline_train_*.bin"
-target_tokens: 237_568_000
+target_tokens: 475_136_000
 cooldown_frac: 0
 learning_rate_schedule: cosine_decay
 learning_rate_floor: 0.1
@@ -41,7 +41,7 @@ val_shards:
     path: "data/dclm_baseline/dclm_baseline_val_*.bin"
     target_tokens: 20_971_520
     sequence_length: 131_072
-val_loss_every_tokens:   11_878_400
+val_loss_every_tokens:   23_756_800
 # Checkpoints
 checkpoint_warmup_tokens:   6_000_000_000     # token warmup before checkpoints
 checkpoint_per_n_tokens:     1         # checkpoint interval by tokens
