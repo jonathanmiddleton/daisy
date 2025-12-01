@@ -155,7 +155,9 @@ class CompiledRuntime:
 
         self.model = model
         # Capture initial weights after dtype/distribution
-        self._initial_state = copy.deepcopy(self.model.state_dict())
+        _sd = copy.deepcopy(self.model.state_dict())
+        from tools.checkpoint import _normalize
+        self._initial_state = _normalize(_sd) # required for normalizing naming
 
         # Compile once
         self.model = _maybe_compile(self.model, device_type=self.device.type, dynamic=dynamic, is_task=is_task)
