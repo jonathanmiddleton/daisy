@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
-Runner for use in conjunction with run.sh, supporting Cartesian product overrides
+Runner for use in conjunction with run.sh. New behavior: a single process executes all
+Cartesian product combinations by forwarding --grid arguments to train.py, which will
+reset model/optimizer state between runs without recompiling the model.
 
 Examples:
-  python -m tools.runner config/pretrain.yml head_params_lr=0.7,0.8,0.9
-  python -m tools.runner config/pretrain.yml head_params_lr=0.7,0.8,0.9 cooldown_frac=0.9,0.8,0.7
+  python -m training.runner config/pretrain.yml head_params_lr=0.7,0.8,0.9
+  python -m training.runner config/pretrain.yml head_params_lr=0.7,0.8,0.9 cooldown_frac=0.9,0.8,0.7
 
-This will execute torchrun multiple times, once for each combination of overrides.
+This will launch a single torchrun/python process and let train.py handle all combinations.
 """
 import argparse
 import itertools
@@ -57,15 +59,10 @@ def _split_override(arg: str) -> Tuple[str, List[str]]:
     return k, parts if parts else [v]
 
 
-def _cartesian_product(overrides: List[Tuple[str, List[str]]]) -> List[List[Tuple[str, str]]]:
-    if not overrides:
-        return [[]]
-    keys = [k for k, _ in overrides]
-    values_lists = [vals for _, vals in overrides]
-    combos = []
-    for prod in itertools.product(*values_lists):
-        combos.append(list(zip(keys, prod)))
-    return combos
+def _has_commas(vals: List[str]) -> bool:
+    return any(
+        ("," in v) for v in vals
+    )
 
 
 def build_run_cmd(
@@ -74,20 +71,24 @@ def build_run_cmd(
     config: str,
     checkpoint: str | None,
     extra_long_opts: List[str],
-    overrides: List[Tuple[str, str]],
+    singleton_overrides: List[Tuple[str, str]],
+    grid_overrides: List[Tuple[str, List[str]]],
 ) -> List[str]:
 
     cmd = ["torchrun", "--standalone", f"--nproc_per_node={nproc}"] if nproc > 1 else ["python"]
     cmd = cmd + ["train.py", config]
-    
+
     if checkpoint:
         cmd.append(f"--init_checkpoint={checkpoint}")
     # include any extra pre-parsed long opts (already prefixed with --)
     cmd.extend(extra_long_opts)
-    # add overrides as --key=value
-    for k, v in overrides:
-        # preserve original key style expected by train.py (underscores); it'll accept --key=value
+    # add singleton overrides as --key=value
+    for k, v in singleton_overrides:
         cmd.append(f"--{k}={v}")
+    # add grid overrides as --grid key=v1,v2
+    for k, vals in grid_overrides:
+        joined = ",".join(vals)
+        cmd.append(f"--grid={k}={joined}")
 
     return cmd
 
@@ -177,9 +178,6 @@ def main(argv: List[str] | None = None) -> int:
         override_pairs.append((k, vals))
         i += 1
 
-    # Compute Cartesian product of overrides
-    combos = _cartesian_product(override_pairs)
-
     # Environment setup
     os.environ.setdefault("TORCH_DISABLE_MODEL_COMPILE", "0")
     os.environ.setdefault("TORCHDYNAMO_CAPTURE_SCALAR_OUTPUTS", "1")
@@ -202,28 +200,30 @@ def main(argv: List[str] | None = None) -> int:
             logger.info(f"BEGIN_SHARD: {begin_shard}")
         logger.info(f"RUN_ID base: {base_run_id}")
         logger.info(f"Extra opts: {' '.join(passthrough_long_opts) if passthrough_long_opts else '(none)'}")
-        logger.info(f"Overridden configurations: {len(combos[0]) if combos and len(combos[0])>0 else 0}; total runs: {len(combos)}")
-        # Execute each combination
-        for idx, combo in enumerate(combos, start=1):
-            # Update RUN_ID for each run: if numeric base, use base + (idx-1)
-            if isinstance(base_run_id, int):
-                os.environ["RUN_ID"] = str(base_run_id + (idx - 1))
+
+        # Separate singleton overrides from grids
+        singletons: List[Tuple[str, str]] = []
+        grids: List[Tuple[str, List[str]]] = []
+        for k, vals in override_pairs:
+            if len(vals) == 1:
+                singletons.append((k, vals[0]))
             else:
-                os.environ["RUN_ID"] = str(base_run_id)
-            # Build command
-            cmd = build_run_cmd(
-                nproc=nproc,
-                config=config,
-                checkpoint=checkpoint or None,
-                extra_long_opts=passthrough_long_opts,
-                overrides=combo,
-            )
-            logger.info("\n=== Running (" + str(idx) + f"/{len(combos)}): " + shlex.join(cmd))
-            rc = _stream_subprocess(cmd, log_fp)
-            if rc != 0:
-                logger.error(f"Run {idx} failed with exit code {rc}. Aborting remaining runs.")
-                return rc
-        return 0
+                grids.append((k, vals))
+
+        # Set base RUN_ID; train.py will auto-increment per combo
+        os.environ["RUN_ID"] = str(base_run_id)
+
+        cmd = build_run_cmd(
+            nproc=nproc,
+            config=config,
+            checkpoint=checkpoint or None,
+            extra_long_opts=passthrough_long_opts,
+            singleton_overrides=singletons,
+            grid_overrides=grids,
+        )
+        logger.info("\n=== Running single multi-run process: " + shlex.join(cmd))
+        rc = _stream_subprocess(cmd, log_fp)
+        return rc
     finally:
         # noinspection PyBroadException
         try:
