@@ -72,6 +72,9 @@ class Hyperparameters:
 
     # Training Defaults
     training_sequence_length: int = 16384
+    # Optional global learning-rate scale applied to every configured param-group lr
+    # This can be overridden from the CLI as: lr_scale=0.5 (or comma-separated values via runner)
+    lr_scale: float = 1.0
 
 
 def load_hparams_from_yaml(config_path: str) -> Hyperparameters:

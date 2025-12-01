@@ -30,6 +30,26 @@ _config_path = sys.argv[1] if len(sys.argv) > 1 else None
 args = load_hparams_from_yaml(_config_path)
 # Apply overrides from the remaining CLI args: support --key=value or key=value
 args = apply_cli_overrides(args, sys.argv[2:])
+# Apply global LR scale to training config before any logging/W&B init so it's treated as config
+try:
+    _lr_scale = float(getattr(args, "lr_scale", 1.0))
+except Exception:
+    _lr_scale = 1.0
+if _lr_scale != 1.0:
+    try:
+        for _opt in (args.optimizers or []):
+            # Scale optimizer-level default lr if present
+            if isinstance(_opt, dict) and "lr" in _opt and isinstance(_opt["lr"], (int, float)):
+                _opt["lr"] = float(_opt["lr"]) * _lr_scale
+            # Scale each param-group lr if present
+            _pgs = _opt.get("params") if isinstance(_opt, dict) else None
+            if isinstance(_pgs, list):
+                for _pg in _pgs:
+                    if isinstance(_pg, dict) and "lr" in _pg and isinstance(_pg["lr"], (int, float)):
+                        _pg["lr"] = float(_pg["lr"]) * _lr_scale
+    except Exception:
+        # Be forgiving; if structure unexpected, leave as-is
+        pass
 # Apply optional scheduling toggle for attention windows
 set_full_windows(args.full_windows)
 run_id = int(os.environ.get("RUN_ID", 0))
@@ -120,6 +140,9 @@ def get_max_memory_allocated() -> Optional[int]:
 from tools.master_logger import MasterLogger
 
 logger = MasterLogger
+# Inform about lr_scale application (after logger is set up)
+if getattr(args, "lr_scale", 1.0) != 1.0:
+    logger.info(f"Applied lr_scale={args.lr_scale} to configured learning rates.")
 ### End Logging ###
 
 # Run start timestamp truncated to the minute (UTC)
