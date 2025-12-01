@@ -82,7 +82,7 @@ def _maybe_compile(model: nn.Module, *, device_type: str, dynamic: bool, is_task
     )
     torch._dynamo.config.compiled_autograd = True
     torch._dynamo.config.error_on_nested_fx_trace = False
-    logger.info(f"Compiling model (dynamic={use_dynamic}) (backend={backend}). This may take several minutes and occur during the initial evals.")
+    logger.info(f"Compiling model (dynamic={use_dynamic}) (backend={backend}). This may take several minutes and occurs in phases during the initial eval and forward.")
     return torch.compile(model, dynamic=use_dynamic, backend=backend)
 
 
