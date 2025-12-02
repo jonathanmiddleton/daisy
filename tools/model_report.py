@@ -205,6 +205,41 @@ def analyze_scalars(model: nn.Module, hparams: Dict[str, Any], zero_threshold: f
     return out
 
 
+def unwrap_model(m: nn.Module) -> nn.Module:
+    """
+    Best-effort unwrap of common training wrappers (DDP/DataParallel/FSDP/Lightning/etc.)
+    to get the underlying model implementation for introspection and reporting.
+
+    This avoids tight dependencies on those packages by only checking attributes.
+    """
+    seen = set()
+    cur = m
+    # Limit the depth to prevent accidental cycles
+    for _ in range(10):
+        if not isinstance(cur, nn.Module):
+            break
+        obj_id = id(cur)
+        if obj_id in seen:
+            break
+        seen.add(obj_id)
+
+        next_mod = None
+        # Common wrappers expose the wrapped module under one of these names
+        for attr in ("module", "model", "_orig_mod", "_original_module", "_wrapped_module"):
+            try:
+                cand = getattr(cur, attr, None)
+                if isinstance(cand, nn.Module):
+                    next_mod = cand
+                    break
+            except Exception:
+                # Be robust to properties that may raise
+                continue
+        if next_mod is None:
+            break
+        cur = next_mod
+    return cur
+
+
 def build_report(model: nn.Module, hparams: Optional[Dict[str, Any] | Hyperparameters] = None, zero_threshold: float = 1e-3) -> Dict[str, Any]:
     """
     Build a model report for an instantiated nn.Module without requiring a checkpoint.
@@ -248,21 +283,23 @@ def build_report(model: nn.Module, hparams: Optional[Dict[str, Any] | Hyperparam
     report["param_megabytes"] = float(bytes_ / (1024 ** 2)) if bytes_ else None
 
     # DaisyCore-specific info if available
-    from models.daisy.daisy_core import DaisyCore  # local import
-    if isinstance(model, DaisyCore):
-        L = len(model.blocks)
+    from models.daisy.daisy_core import DaisyCore   
+    base_model = unwrap_model(model)
+    if isinstance(base_model, DaisyCore):
+        L = len(base_model.blocks)
         report.setdefault("model", {})
         report["model"].update({
             "type": "DaisyCore",
             "num_layers": L,
-            "has_attn_every_layer": all(getattr(b, "attn", None) is not None for b in model.blocks),
-            "attn_off_layers": [i for i, b in enumerate(model.blocks) if getattr(b, "attn", None) is None],
-            "lm_head_rows": int(model.lm_head_w.shape[0]) if hasattr(model, "lm_head_w") else None,
-            "lm_head_cols": int(model.lm_head_w.shape[1]) if hasattr(model, "lm_head_w") else None,
+            "has_attn_every_layer": all(getattr(b, "attn", None) is not None for b in base_model.blocks),
+            "attn_off_layers": [i for i, b in enumerate(base_model.blocks) if getattr(b, "attn", None) is None],
+            "lm_head_rows": int(base_model.lm_head_w.shape[0]) if hasattr(base_model, "lm_head_w") else None,
+            "lm_head_cols": int(base_model.lm_head_w.shape[1]) if hasattr(base_model, "lm_head_w") else None,
         })
 
     # Scalars analysis
-    scalars_info = analyze_scalars(model, hparams, zero_threshold)
+    # Use the unwrapped model so attributes like .blocks / .skip_weights are visible
+    scalars_info = analyze_scalars(base_model, hparams, zero_threshold)
     report["scalars"] = scalars_info
 
     return report
