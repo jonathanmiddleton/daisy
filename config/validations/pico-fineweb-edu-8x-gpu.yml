@@ -1,7 +1,7 @@
 # Logging
 wandb_log: true
 wandb_project: 'validations'
-wandb_run_name: 'pico-fineweb-edu-single-gpu'
+wandb_run_name: 'pico-fineweb-edu-8x-gpu'
 # Torch config
 torch.coordinate_descent_tuning: true
 # Pretraining configuration
