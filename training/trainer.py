@@ -269,11 +269,41 @@ class TrainingSession:
 
     # ------- Build per-run state -------
     def _apply_lr_scale_inplace(self):
+        # Be tolerant to various representations of lr_scale coming from CLI overrides.
+        # Accept: float/int, numeric strings, and 1-element list/tuple.
+        raw = getattr(self.args, "lr_scale", 1.0)
+        def _parse_lr_scalar(x) -> float:
+            # Fast-path numbers
+            if isinstance(x, (int, float)):
+                return float(x)
+            # Single-element collections
+            if isinstance(x, (list, tuple)):
+                if len(x) == 1:
+                    return _parse_lr_scalar(x[0])
+                raise ValueError("lr_scale list/tuple must contain exactly one value")
+            # Strings like "1.3" or "[1.3]" or quoted
+            if isinstance(x, str):
+                s = x.strip()
+                # Strip surrounding brackets if present (common when users pass [1.3])
+                if len(s) >= 2 and s[0] == "[" and s[-1] == "]":
+                    s = s[1:-1].strip()
+                # Strip surrounding quotes
+                if len(s) >= 2 and ((s[0] == s[-1]) and s[0] in "\"'"):
+                    s = s[1:-1]
+                return float(s)
+            # Last resort: attempt direct float conversion
+            return float(x)
+
         try:
-            lr_scale = float(getattr(self.args, "lr_scale", 1.0))
+            lr_scale = _parse_lr_scalar(raw)
         except Exception:
-            logger.warning(f"Failed to parse lr_scale={getattr(self.args, 'lr_scale', 1.0)} as float.")
+            logger.warning(f"Failed to parse lr_scale={raw} as float.")
             lr_scale = 1.0
+        # Normalize the stored value to the parsed float so downstream logs/configs are consistent
+        try:
+            setattr(self.args, "lr_scale", float(lr_scale))
+        except Exception:
+            pass
         try:
             for opt in (self.args.optimizers or []):
                 if isinstance(opt, dict) and "lr" in opt and isinstance(opt["lr"], (int, float)):
