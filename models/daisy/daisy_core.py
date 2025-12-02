@@ -42,8 +42,8 @@ def _build_ve_layer_map(L: int, ve_layers: List[int], _in: int, _out: int) -> Di
     embeds = [nn.Embedding(_in, _out) for _ in range(K)]
     ve_map: Dict[int, Optional[nn.Embedding]] = {}
 
-    for i in ve_layers:
-        ve_map[i] = embeds[i] if i < K else embeds[i - (L - K)]
+    for i in range(len(ve_layers)):
+        ve_map[ve_layers[i]] = embeds[i % K]
 
     return ve_map
 
