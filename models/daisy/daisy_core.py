@@ -163,7 +163,7 @@ class DaisyCore(nn.Module):
                 nn.init.normal_(self.lm_head_w, mean=0.0, std=0.02)
         self.window_size = window_size
         assert num_layers % 2 == 0
-        self.skip_weights = nn.Parameter(torch.ones(num_layers))
+        self.skip_weights = nn.Parameter(torch.ones(num_layers)*10)
         self.desc = desc  # non-functional, self-describing metadata
 
     def reset_history(self):
@@ -254,7 +254,8 @@ class DaisyCore(nn.Module):
 
         for i in range(L):
             if i in skip_map:
-                x = x + skip_weights[skip_map[i]] * skip_connections[skip_map[i]]
+                gate = torch.sigmoid(skip_weights[skip_map[i]])
+                x = x*gate + (1-gate)*skip_connections[skip_map[i]]
             if i in ve_map:
                 x = self.blocks[i](x, ve_map[i], x0,  block_mask=block_masks[i], attn_mask=attn_mask)
             else:
@@ -298,10 +299,15 @@ class DaisyCore(nn.Module):
         k_new_list = []
         v_new_list = []
         skip_connections = []
+        ve_map: Dict[int, Tensor] = self.compute_value_embeddings(token_id)
         for i in range(L):
             if i in skip_map:
-                x = x + skip_weights[skip_map[i]] * skip_connections[skip_map[i]]
-            y, k_new, v_new = self.blocks[i].step(x, ve[i], x0, k_ctxs[i], v_ctxs[i], pos, window)
+                gate = torch.sigmoid(skip_weights[skip_map[i]])
+                x = x*gate + (1-gate)*skip_connections[skip_map[i]]
+            if i in ve_map:
+                y, k_new, v_new = self.blocks[i].step(x, ve_map[i], x0, k_ctxs[i], v_ctxs[i], pos, window)
+            else:
+                y, k_new, v_new = self.blocks[i].step(x, None, x0, k_ctxs[i], v_ctxs[i], pos, window)
             x = y
             skip_connections.append(x)
             k_new_list.append(k_new)
@@ -332,10 +338,15 @@ class DaisyCore(nn.Module):
         skip_weights = self.skip_weights
 
         k_list, v_list, skip_connections = [], [], []
+        ve_map: Dict[int, Tensor] = self.compute_value_embeddings(input_seq)
         for i in range(L):
             if i in skip_map:
-                x = x + skip_weights[skip_map[i]] * skip_connections[skip_map[i]]
-            x, k, v = self.blocks[i].prefill(x, ve[i], x0, debug=debug)
+                gate = torch.sigmoid(skip_weights[skip_map[i]])
+                x = x * gate + (1 - gate) * skip_connections[skip_map[i]]
+            if i in ve_map:
+                x, k, v = self.blocks[i].prefill(x, ve_map[i], x0, debug=debug)
+            else:
+                x, k, v  = self.blocks[i].prefill(x, None, x0, debug=debug)
             skip_connections.append(x)
             k_list.append(k)
             v_list.append(v)

@@ -56,6 +56,8 @@ def analyze_scalars(model: nn.Module, hparams: Dict[str, Any], zero_threshold: f
 
     # Skip weights live on the root module
     skip_w = model.skip_weights.detach().float().cpu().view(-1)
+    # Optional reverse mapping later_layer -> earlier_layer
+    skip_map = getattr(model, "skip_map", None)
 
     # Residual mix scalars: one per block at .g_x
     lambdas_list = []
@@ -133,16 +135,36 @@ def analyze_scalars(model: nn.Module, hparams: Dict[str, Any], zero_threshold: f
                 sa_val_list = [v]
                 sa_nz_list = [bool(abs(v) <= zero_threshold)]
 
+        # Determine which skip weight parameter gates this target layer (if any)
+        long_skip_param = None
+        long_skip_nz = None
+        try:
+            if isinstance(skip_map, dict) and i in skip_map:
+                src_idx = int(skip_map[i])
+                if 0 <= src_idx < skip_w.numel():
+                    v = float(skip_w[src_idx].item())
+                    long_skip_param = v
+                    long_skip_nz = bool(abs(v) <= zero_threshold)
+        except Exception:
+            # Be robust in case of unexpected types
+            long_skip_param = None
+            long_skip_nz = None
+
         layer_info = {
             "layer": i,
+            # Raw skip weight by index for completeness/summary (not used for display)
             "skip_w": float(skip_w[i].item()),
             "skip_w_near_zero": bool(abs(skip_w[i].item()) <= zero_threshold),
+            # Skip parameter that actually gates this target layer (if receives a long skip)
+            "long_skip_param": long_skip_param,
+            "long_skip_near_zero": long_skip_nz,
             "lambda": lam_list,
             "lambda_near_zero": lam_nz_list,
             "sa_lambda": sa_val_list,
             "sa_lambda_near_zero": sa_nz_list,
         }
-        if layer_info["skip_w_near_zero"]:
+        # Track layers whose effective long-skip gating param is near zero
+        if long_skip_nz is True:
             fully_off_layers.append(i)
         per_layer.append(layer_info)
 
@@ -291,7 +313,7 @@ def format_report_text(report: Dict[str, Any]) -> str:
         # Per-layer compact print (with sigmoid display for g_x and g_ve)
         # Title/header row: remove extra wording and parentheses, show only column labels aligned
         lines.append("")
-        col1_label = "Long Skip"
+        col1_label = "Long Skip Gate*"
         col2_label = "Sideband Res. Gate*"
         col3_label = "V. Embd Gate*"
 
@@ -312,9 +334,13 @@ def format_report_text(report: Dict[str, Any]) -> str:
         for li in sc.get("per_layer", []):
             i = li["layer"]
 
-            # Long Skip (raw)
-            skip_raw = li.get("skip_w")
-            skip_s_val = fmt_float(skip_raw)
+            # Long Skip: display only for layers that actually receive long skips per skip_map
+            long_skip_param = li.get("long_skip_param", None)
+            if long_skip_param is None:
+                skip_s_val = "-"
+            else:
+                ls_sig = sigmoid_val(long_skip_param)
+                skip_s_val = f"{fmt_float(ls_sig)} / {fmt_float(1.0 - ls_sig)}"
 
             # Sideband Res. Gate (sigmoid of Block.g_x) as "lam / (1-lam)"
             lam_vals = li.get("lambda")
