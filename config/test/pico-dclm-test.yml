@@ -1,7 +1,7 @@
 # Logging
 wandb_log: true
 wandb_project: 'daisy'
-wandb_run_name: 'pico-dclm'
+wandb_run_name: 'pico-dclm-test'
 # Torch config
 torch.coordinate_descent_tuning: false
 # Pretraining configuration
