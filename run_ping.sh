@@ -43,8 +43,11 @@ while [[ $i -le $# ]]; do
   i=$((i+1))
 done
 
+NPROC=$((NPROC))
+NNODES=$((NNODES))
+
 # Build command
-if [[ "${NPROC}" -le 1 ]]; then
+if [[ "${NNODES}" -le 1 ]]; then
   CMD=( python -m training.ping )
 else
   if [[ -z "${NNODES}" || "${NNODES}" -eq 1 ]]; then
