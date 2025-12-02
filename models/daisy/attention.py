@@ -91,7 +91,7 @@ class CausalSelfAttention(nn.Module):
         self.last_q = None
         self.last_k = None
         self.receives_ve = receives_ve
-        self.g_ve = nn.Parameter(torch.tensor(0)) if self.receives_ve else None  # init 50/50 gate
+        self.g_ve = nn.Parameter(torch.zeros(1)) if self.receives_ve else None  # init 50/50 gate
 
         if is_flex_available(dynamic_shapes=self.dynamic_shapes): # dynamic shapes fail because of implied constraints within BlockMask
             self.forward = self.forward_flex
