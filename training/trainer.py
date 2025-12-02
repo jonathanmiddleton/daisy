@@ -171,8 +171,8 @@ class CompiledRuntime:
             self.model.load_state_dict(self._initial_state, strict=True)
         except Exception as e:
             # uncompiled models expect weight names without a prefix
-            from tools.checkpoint import strip_prefix
-            _sd = strip_prefix(self._initial_state)
+            from tools.checkpoint import remove_prefix
+            _sd = remove_prefix(self._initial_state)
             self.model.load_state_dict(_sd, strict=True)
         self.model.zero_grad(set_to_none=True)
 
