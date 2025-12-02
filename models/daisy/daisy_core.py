@@ -163,7 +163,7 @@ class DaisyCore(nn.Module):
                 nn.init.normal_(self.lm_head_w, mean=0.0, std=0.02)
         self.window_size = window_size
         assert num_layers % 2 == 0
-        self.skip_weights = nn.Parameter(torch.ones(num_layers)*10)
+        self.skip_weights = nn.Parameter(torch.ones(num_layers)*2.945) # init 95/5 gate
         self.desc = desc  # non-functional, self-describing metadata
 
     def reset_history(self):
@@ -316,7 +316,7 @@ class DaisyCore(nn.Module):
         logits = F.linear(x.flatten(end_dim=1).bfloat16(), self.lm_head_w.bfloat16()).float()
         return logits, k_new_list, v_new_list
 
-# TODO why is window unused?
+# TODO restore windowing
     def prefill(self, input_seq: Tensor, window: Optional[int] = None, debug: bool = False): #TODO   merge prefill/forward
         assert input_seq.ndim == 2
         B, T = input_seq.shape
