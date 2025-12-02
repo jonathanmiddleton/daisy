@@ -79,7 +79,7 @@ class Hyperparameters:
     lr_scale: float = 1.0
 
 
-def load_hparams_from_yaml(config_path: str) -> Hyperparameters:
+def load_hparams_from_yaml(config_path: str, *, validate: bool = True) -> Hyperparameters:
     """
     Load Hyperparameters from a YAML file. If a 'model_spec' key is present, also load and merge
     the named spec from model_specs/<name>.yml (or a provided file path). Training config values
@@ -205,59 +205,9 @@ def load_hparams_from_yaml(config_path: str) -> Hyperparameters:
 
     args = Hyperparameters(**cfg_dict)
 
-    # Additional validations per spec
-    try:
-        tsl = int(args.training_sequence_length)
-        tawt = int(args.train_attention_window_len)
-        gas = int(args.grad_acc_steps)
-        cdf = float(args.cooldown_frac)
-        vlet = int(args.val_loss_every_tokens)
-        spnt = int(args.checkpoint_per_n_tokens)
-        swt = int(args.checkpoint_warmup_tokens)
-    except Exception as e:
-        raise ValueError(f"Invalid types in Hyperparameters: {e}")
-    if tsl % WINDOW_BLOCK_SIZE != 0:
-        raise ValueError(f"training_sequence_length ({tsl}) must be divisible by window_block_size ({WINDOW_BLOCK_SIZE})")
-    if tawt % WINDOW_BLOCK_SIZE != 0:
-        raise ValueError(f"train_attention_window_len ({tawt}) must be divisible by window_block_size ({WINDOW_BLOCK_SIZE})")
-    if tsl < tawt:
-        raise ValueError(f"training_sequence_length ({tsl}) must be >= train_attention_window_len ({tawt})")
-    # Enforce training window <= model's supported max if spec is available
-    if spec_dict is not None:
-        spec_max = int(spec_dict["attention_window_len"])  # model's maximum window
-        if tawt > spec_max:
-            raise ValueError(
-                f"train_attention_window_len ({tawt}) must be <= model_spec.attention_window_len ({spec_max})"
-            )
-    if gas < 1:
-        raise ValueError(f"grad_acc_steps must be >= 1, got {gas}")
-    if not (0.0 <= cdf <= 1.0):
-        raise ValueError(f"cooldown_frac must be in [0,1], got {cdf}")
-    # Optional: learning rate floor in [0,1]
-    try:
-        lrf = float(args.learning_rate_floor)
-    except Exception as e:
-        raise ValueError(f"learning_rate_floor must be a number in [0,1], got {args.learning_rate_floor}")
-    if not (0.0 <= lrf <= 1.0):
-        raise ValueError(f"learning_rate_floor must be in [0,1], got {lrf}")
-    if vlet < 0:
-        raise ValueError(f"val_loss_every_tokens must be >= 0, got {vlet}")
-    if spnt < 0:
-        raise ValueError(f"checkpoint_per_n_tokens must be >= 0, got {spnt}")
-    if swt < 0:
-        raise ValueError(f"checkpoint_warmup_tokens must be >= 0, got {swt}")
-    # Validate learning rate schedule option
-    # Validate learning rate schedule option against optim dispatch table
-    try:
-        from training.optim import LEARNING_RATE_SCHEDULES
-        valid_schedules = set(LEARNING_RATE_SCHEDULES.keys())
-    except Exception:
-        valid_schedules = {"linear_decay", "linear_warmup_cosine_decay", "cosine_decay"}
-    if args.learning_rate_schedule not in valid_schedules:
-        raise ValueError(
-            f"learning_rate_schedule must be one of {sorted(valid_schedules)}, got '{args.learning_rate_schedule}'"
-        )
-
+    # Optionally validate now; train.py may defer validation until after CLI overrides are applied
+    if validate:
+        validate_hparams(args)
     return args
 
 
@@ -284,8 +234,74 @@ def apply_cli_overrides(args: Hyperparameters, override_args: List[str]) -> Hype
     return args
 
 
+def validate_hparams(args: Hyperparameters) -> Hyperparameters:
+    """
+    Validate a fully-populated Hyperparameters object. This can be invoked after CLI overrides
+    are applied to ensure constraints reflect final values.
+    Returns the same args for convenience.
+    """
+    try:
+        tsl = int(args.training_sequence_length)
+        tawt = int(args.train_attention_window_len)
+        gas = int(args.grad_acc_steps)
+        cdf = float(args.cooldown_frac)
+        vlet = int(args.val_loss_every_tokens)
+        spnt = int(args.checkpoint_per_n_tokens)
+        swt = int(args.checkpoint_warmup_tokens)
+    except Exception as e:
+        raise ValueError(f"Invalid types in Hyperparameters: {e}")
+    if tsl % WINDOW_BLOCK_SIZE != 0:
+        raise ValueError(f"training_sequence_length ({tsl}) must be divisible by window_block_size ({WINDOW_BLOCK_SIZE})")
+    if tawt % WINDOW_BLOCK_SIZE != 0:
+        raise ValueError(f"train_attention_window_len ({tawt}) must be divisible by window_block_size ({WINDOW_BLOCK_SIZE})")
+    if tsl < tawt:
+        raise ValueError(f"training_sequence_length ({tsl}) must be >= train_attention_window_len ({tawt})")
+    # Enforce training window <= model's supported max if model_spec is available
+    try:
+        from model_specs import load_model_spec
+        from dataclasses import asdict as _asdict
+        spec = _asdict(load_model_spec(str(args.model_spec)))
+        spec_max = int(spec.get("attention_window_len", tawt))
+        if tawt > spec_max:
+            raise ValueError(
+                f"train_attention_window_len ({tawt}) must be <= model_spec.attention_window_len ({spec_max})"
+            )
+    except Exception:
+        # If spec loading fails here, defer to downstream model construction errors
+        pass
+    if gas < 1:
+        raise ValueError(f"grad_acc_steps must be >= 1, got {gas}")
+    if not (0.0 <= cdf <= 1.0):
+        raise ValueError(f"cooldown_frac must be in [0,1], got {cdf}")
+    # Optional: learning rate floor in [0,1]
+    try:
+        lrf = float(args.learning_rate_floor)
+    except Exception:
+        raise ValueError(f"learning_rate_floor must be a number in [0,1], got {args.learning_rate_floor}")
+    if not (0.0 <= lrf <= 1.0):
+        raise ValueError(f"learning_rate_floor must be in [0,1], got {lrf}")
+    if vlet < 0:
+        raise ValueError(f"val_loss_every_tokens must be >= 0, got {vlet}")
+    if spnt < 0:
+        raise ValueError(f"checkpoint_per_n_tokens must be >= 0, got {spnt}")
+    if swt < 0:
+        raise ValueError(f"checkpoint_warmup_tokens must be >= 0, got {swt}")
+    # Validate learning rate schedule option against optim dispatch table
+    try:
+        from training.optim import LEARNING_RATE_SCHEDULES
+        valid_schedules = set(LEARNING_RATE_SCHEDULES.keys())
+    except Exception:
+        valid_schedules = {"linear_decay", "linear_warmup_cosine_decay", "cosine_decay"}
+    if args.learning_rate_schedule not in valid_schedules:
+        raise ValueError(
+            f"learning_rate_schedule must be one of {sorted(valid_schedules)}, got '{args.learning_rate_schedule}'"
+        )
+    return args
+
+
 __all__ = [
     "Hyperparameters",
     "load_hparams_from_yaml",
     "apply_cli_overrides",
+    "validate_hparams",
 ]

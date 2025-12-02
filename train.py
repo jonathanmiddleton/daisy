@@ -8,7 +8,7 @@ from typing import List, Tuple
 import torch
 
 from tools.master_logger import MasterLogger
-from training.hparams import load_hparams_from_yaml, apply_cli_overrides, Hyperparameters
+from training.hparams import load_hparams_from_yaml, apply_cli_overrides, validate_hparams, Hyperparameters
 from training.trainer import (
     CompiledRuntime,
     TrainingSession,
@@ -69,8 +69,12 @@ def main(argv: List[str] | None = None) -> int:
     grid_specs_raw: List[str] = args_ns.grids or []
     tail_overrides: List[str] = [s for s in (args_ns.overrides or []) if not (s.startswith("--grid") or s == "--")]
 
-    base_args = load_hparams_from_yaml(config_path)
+    # Defer validation until after CLI overrides are applied so users can override
+    # fields that otherwise would fail spec-based checks on raw YAML load.
+    base_args = load_hparams_from_yaml(config_path, validate=False)
     base_args = apply_cli_overrides(base_args, tail_overrides)
+    # Validate the fully-materialized base args
+    validate_hparams(base_args)
 
     # Materialize combinations
     grid_specs: List[Tuple[str, List[str]]] = []
@@ -102,6 +106,8 @@ def main(argv: List[str] | None = None) -> int:
         # like `optimizers` across runs.
         a = copy.deepcopy(base_args)
         a = apply_cli_overrides(a, [f"{k}={v}" for k, v in combo])
+        # Validate each per-run args after applying grid-specific overrides
+        validate_hparams(a)
         run_id = base_run_id + idx
         run_args_list.append((run_id, a))
 
