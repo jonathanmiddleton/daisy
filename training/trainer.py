@@ -287,7 +287,6 @@ class TrainingSession:
                 setattr(self, "_lr_suffix_applied", True)
                 logger.info(f"wandb_run_name updated with lr_scale suffix: {new_name}")
         except Exception:
-            # non-fatal if naming fails; training can proceed
             logger.warning(f"Failed to add lr_scale suffix to wandb_run_name: {self.args.wandb_run_name}")
 
     def _build_data_and_evals(self) -> Tuple[Iterable, List[Tuple[str, Evaluator, int]], Optional[int]]:
