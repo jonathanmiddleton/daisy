@@ -1,18 +1,18 @@
 # Logging
 wandb_log: true
 wandb_project: 'daisy'
-wandb_run_name: 'pico-dclm'
-wandb_group: 'pico-dclm'
+wandb_run_name: 'nano-dclm-sweep'
+wandb_group: 'nano-dclm-sweep'
 # Torch config
-torch.coordinate_descent_tuning: false
+torch.coordinate_descent_tuning: true
 # Pretraining configuration
 train_shards: "data/dclm_baseline/dclm_baseline_train_*.bin"
-target_tokens: 1_000_000_000
-cooldown_frac: 1
-learning_rate_schedule: linear_decay
-learning_rate_floor: 0.01
-training_sequence_length: 65_536
-train_attention_window_len: 4096
+target_tokens: 475_136_000
+cooldown_frac: 0
+learning_rate_schedule: cosine_decay
+learning_rate_floor: 0.1
+training_sequence_length: 65_536        #  N * 1024; must be divisible by window_block_size
+train_attention_window_len: 2048        # largest sliding attention window used during training; must be divisible by window_block_size
 # Optimizers configuration
 optimizers:
   - type: AdamW
@@ -34,17 +34,18 @@ optimizers:
       - group: hidden_matrix_params
         lr: 0.025
 full_windows: false
-grad_acc_steps: 1
+# Gradient accumulation
+grad_acc_steps: 2
 # Evaluations
 val_shards:
   - type: "dclm_baseline"
     path: "data/dclm_baseline/dclm_baseline_val_*.bin"
-    target_tokens: 41_943_040
-    sequence_length: 65_536
-val_loss_every_tokens:    32_768_000
+    target_tokens: 20_971_520
+    sequence_length: 131_072
+val_loss_every_tokens:   23_756_800
 # Checkpoints
-checkpoint_warmup_tokens:   500_000_000
-checkpoint_per_n_tokens:     1
+checkpoint_warmup_tokens:   6_000_000_000     # token warmup before checkpoints
+checkpoint_per_n_tokens:     1         # checkpoint interval by tokens
 save_checkpoint: true
 # Model Definition
-model_spec: daisy_pico
+model_spec: daisy_nano

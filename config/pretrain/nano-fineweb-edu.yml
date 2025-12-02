@@ -2,6 +2,7 @@
 wandb_log: true
 wandb_project: 'daisy'
 wandb_run_name: 'nano-fineweb-edu'
+wandb_group: 'nano-fineweb-edu'
 # Torch config
 torch.coordinate_descent_tuning: false
 # Pretraining configuration
