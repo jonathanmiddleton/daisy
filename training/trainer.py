@@ -3,6 +3,7 @@ import itertools
 import json
 import math
 import os
+import sys
 import time
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
@@ -271,7 +272,23 @@ class TrainingSession:
                             pg["lr"] = float(pg["lr"]) * lr_scale
             logger.info(f"Applied lr_scale={lr_scale} to configured learning rates.")
         except Exception:
-            pass
+            logger.error(f"Failed to apply lr_scale={lr_scale} to learning rates.")
+            sys.exit(1)
+
+        # If an lr_scale was provided (and is not effectively 1.0), append it as a suffix to the wandb run name
+        try:
+            if abs(float(lr_scale) - 1.0) > 1e-12 and not getattr(self, "_lr_suffix_applied", False):
+                base = getattr(self.args, "wandb_run_name", "") or ""
+                # compact human-friendly formatting for floats, avoids long reprs
+                fmt = f"{float(lr_scale):.6g}"
+                suffix = f"-lr{fmt}"
+                new_name = (base + suffix) if base else f"lr{fmt}"
+                setattr(self.args, "wandb_run_name", new_name)
+                setattr(self, "_lr_suffix_applied", True)
+                logger.info(f"wandb_run_name updated with lr_scale suffix: {new_name}")
+        except Exception:
+            # non-fatal if naming fails; training can proceed
+            logger.warning(f"Failed to add lr_scale suffix to wandb_run_name: {self.args.wandb_run_name}")
 
     def _build_data_and_evals(self) -> Tuple[Iterable, List[Tuple[str, Evaluator, int]], Optional[int]]:
         args = self.args
