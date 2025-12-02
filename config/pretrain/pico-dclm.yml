@@ -33,14 +33,14 @@ optimizers:
       - group: hidden_matrix_params
         lr: 0.025
 full_windows: false
-grad_acc_steps: 1 # assumes world_size=8
+grad_acc_steps: 1
 # Evaluations
 val_shards:
   - type: "dclm_baseline"
     path: "data/dclm_baseline/dclm_baseline_val_*.bin"
     target_tokens: 41_943_040
     sequence_length: 65_536
-val_loss_every_tokens:    131_072_000
+val_loss_every_tokens:    32_768_000
 # Checkpoints
 checkpoint_warmup_tokens:   500_000_000
 checkpoint_per_n_tokens:     1
