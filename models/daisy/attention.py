@@ -171,9 +171,10 @@ class CausalSelfAttention(nn.Module):
         q, k, v = self._calc_qkv_pos(x, pos)
         dtype = q.dtype
 
-        ve = ve.to(dtype)
         if self.receives_ve:
+            ve = ve.to(dtype)
             g_x = torch.sigmoid(self.g_ve).to(dtype)
+            torch._assert(ve is not None, "ve must be provided when receives_ve=True")
             v = g_x * v + (1.0 - g_x) * ve.view_as(v).to(dtype)
 
         n = k_ctx.size(1)
