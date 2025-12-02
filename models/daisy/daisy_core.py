@@ -220,15 +220,10 @@ class DaisyCore(nn.Module):
         return block_masks
 
     def compute_value_embeddings(self, input_seq: Tensor) -> Dict[int, Tensor]:
-        L = len(self.blocks)
-        K = len(self.ve_module_map) // 2
-        embeddings = [norm(m(input_seq)) for m in self.ve_modules]
         ve_map: Dict[int, Tensor] = {}
         for i in self.ve_module_map:
-            ve_map[i] = embeddings[i] if i < K else embeddings[i - (L-K)]
-
+            ve_map[i] = self.ve_module_map[i](input_seq)
         return ve_map
-
 
     def forward(self, input_seq: Tensor, sliding_window_num_blocks: Tensor, target_seq: Tensor = None, loss_chunks: int = 4, output_logits: bool = False):
         torch._assert(input_seq.ndim == 1, "input_seq must be 1D")
