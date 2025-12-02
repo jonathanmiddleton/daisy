@@ -2,7 +2,7 @@
 wandb_log: true
 wandb_project: 'daisy'
 wandb_run_name: 'milli-dclm-sweep'
-wandb_group: 'milli-fineweb-sweep'
+wandb_group: 'milli-dclm-sweep'
 # Torch config
 torch.coordinate_descent_tuning: true
 # Pretraining configuration
