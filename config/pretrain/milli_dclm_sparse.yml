@@ -1,7 +1,7 @@
 # Logging
 wandb_log: true
 wandb_project: 'daisy'
-wandb_run_name: 'milli-dclm'
+wandb_run_name: 'milli-dclm-sparse'
 wandb_group: 'milli-dclm'
 # Torch config
 torch.coordinate_descent_tuning: true
@@ -12,7 +12,7 @@ cooldown_frac: 1
 learning_rate_schedule: cosine_decay
 learning_rate_floor: 0.1
 training_sequence_length: 37_120
-train_attention_window_len: 8192
+train_attention_window_len: 4096
 # Optimizers configuration
 optimizers:
   - type: AdamW
@@ -33,7 +33,7 @@ optimizers:
     params:
       - group: hidden_matrix_params
         lr: 0.0125
-full_windows: true
+full_windows: false
 # Gradient accumulation
 grad_acc_steps: 2
 # Evaluations
@@ -48,4 +48,4 @@ checkpoint_warmup_tokens:   1_000_000_000
 checkpoint_per_n_tokens:     1
 save_checkpoint: true
 # Model Definition
-model_spec: daisy_milli
+model_spec: daisy_milli_sparse
