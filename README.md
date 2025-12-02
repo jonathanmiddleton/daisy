@@ -133,11 +133,11 @@ curl -u user:pass \
 {
   "id": "resp_...",
   "object": "response",
-  "created": 1730...,
+  "created": 1730234,
   "model": "daisy",
   "output": [{"type":"message","role":"assistant","content":[{"type":"output_text","text":"..."}]}],
   "usage": {"prompt_tokens":N,"completion_tokens":M,"total_tokens":N+M},
-  "meta": {"prefill_ms":..., "gen_ms":...},
+  "meta": {"prefill_ms":123, "gen_ms":456},
   "session_id": "sess_..."
 }
 

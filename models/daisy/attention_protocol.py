@@ -16,7 +16,7 @@ class AttentionProtocol(Protocol):
     def forward(
         self,
         x: Tensor,
-        ve: Tensor,
+        ve: Tensor | None,
         attn_mask: Optional[Tensor] = None,
         block_mask: Optional[Tensor] = None,
     ) -> Tensor: ...
@@ -26,7 +26,7 @@ class AttentionProtocol(Protocol):
     def prefill(
         self,
         x: Tensor,
-        ve: Tensor,
+        ve: Tensor | None,
         attn_mask: Tensor = None,
         debug: bool = False,
     ) -> Tuple[Tensor, Optional[Tensor], Optional[Tensor]]: ...
@@ -37,6 +37,6 @@ class AttentionProtocol(Protocol):
         k_ctx: Optional[Tensor],
         v_ctx: Optional[Tensor],
         pos: int,
-        ve: Tensor,
+        ve: Tensor | None,
         window: Optional[int],
     ) -> Tuple[Tensor, Optional[Tensor], Optional[Tensor]]: ...

@@ -92,7 +92,7 @@ def load_checkpoint(path: str, map_location: Any | None = None, strip_prefix: bo
     obj = torch.load(path, map_location=map_location)
     ckpt = _normalize(obj)
     if strip_prefix:
-        ckpt.model = strip_prefix(ckpt.model)
+        ckpt.model = remove_prefix(ckpt.model)
     return ckpt
 
 

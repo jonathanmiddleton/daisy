@@ -7,7 +7,7 @@ head_dim: 128
 model_dim: 1024
 attention_window_len: 3456
 max_seq_len: 262144
-value_embeddings: true
-tied_embeddings: false
+use_value_embeddings: true
+use_tied_embeddings: false
 attn_all_layers: true
 attn_impl: 'kimi_linear' # 'standard' or `kimi_linear`

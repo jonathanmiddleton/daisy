@@ -50,8 +50,8 @@ class Hyperparameters:
     # Optional minimum LR as a fraction of the initial LR (0..1). When 0.5, LR won't go below 50% of initial.
     learning_rate_floor: float = 0.0
     init_checkpoint: str | None = None
-    value_embeddings: bool = True
-    tied_embeddings: bool = False
+    use_value_embeddings: bool = True
+    use_tied_embeddings: bool = False
     train_mode: str = "pretrain"  # "pretrain" or "task"
     train_shards: str = ""
     # List of evaluation datasets with descriptive type and path glob

@@ -8,5 +8,5 @@ head_dim: 64
 model_dim: 1600
 attention_window_len: 3456
 max_seq_len: 16384
-value_embeddings: true
-tied_embeddings: false
+use_value_embeddings: true
+use_tied_embeddings: false
