@@ -47,6 +47,8 @@ class Hyperparameters:
     wandb_log: bool = False
     wandb_project: str = ""
     wandb_run_name: str = ""
+    # Optional Weights & Biases group name (for organizing runs in UI)
+    wandb_group: Optional[str] = None
     # Optional minimum LR as a fraction of the initial LR (0..1). When 0.5, LR won't go below 50% of initial.
     learning_rate_floor: float = 0.0
     init_checkpoint: str | None = None

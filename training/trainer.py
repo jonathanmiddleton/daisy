@@ -208,9 +208,15 @@ class TrainingSession:
                 else:
                     name = f"{base_name}-r{self.run_id}"
                 self._wandb = wandb
-                self._wandb.init(project=project, name=name, config=asdict(self.args))
+                group = getattr(self.args, "wandb_group", None)
+                self._wandb.init(
+                    project=project,
+                    name=name,
+                    config=asdict(self.args),
+                    group=group,  # None is fine if no group is set
+                )
                 self._wandb_enabled = True
-                logger.info(f"wandb logging enabled: project={project} name={name}")
+                logger.info(f"wandb logging enabled: project={project} name={name} group={group}")
             except Exception as e:
                 logger.error(f"[warn] Failed to initialize wandb logging: {e}")
                 self._wandb = None

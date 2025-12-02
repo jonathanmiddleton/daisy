@@ -2,6 +2,7 @@
 wandb_log: true
 wandb_project: 'daisy'
 wandb_run_name: 'pico-fineweb-sweep'
+wandb_group: 'pico-fineweb-sweep'
 # Torch config
 torch.coordinate_descent_tuning: true
 # Pretraining configuration
@@ -38,12 +39,12 @@ grad_acc_steps: 1
 val_shards:
   - type: "fineweb-edu"
     path: "data/fineweb-edu/edu_fineweb_val_*.bin"
-    target_tokens: 41_943_040
-    sequence_length: 65_536
+    target_tokens: 20_971_520
+    sequence_length: 131_072
 val_loss_every_tokens:   3_276_800
 # Checkpoints
 checkpoint_warmup_tokens:   1_000_000_001
 checkpoint_per_n_tokens:     1
-save_checkpoint: false
+save_checkpoint: true
 # Model Definition
 model_spec: daisy_pico
