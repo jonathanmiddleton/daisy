@@ -200,7 +200,13 @@ class TrainingSession:
                 import wandb
 
                 project = self.args.wandb_project
-                name = f"{self.args.wandb_run_name}-r{self.run_id}"
+                # If an lr_scale suffix was applied to the run name, do NOT append a run-id suffix.
+                # Otherwise, keep previous behavior and append "-r{run_id}" for disambiguation.
+                base_name = getattr(self.args, "wandb_run_name", "") or ""
+                if getattr(self, "_lr_suffix_applied", False):
+                    name = base_name
+                else:
+                    name = f"{base_name}-r{self.run_id}"
                 self._wandb = wandb
                 self._wandb.init(project=project, name=name, config=asdict(self.args))
                 self._wandb_enabled = True
@@ -260,6 +266,7 @@ class TrainingSession:
         try:
             lr_scale = float(getattr(self.args, "lr_scale", 1.0))
         except Exception:
+            logger.warning(f"Failed to parse lr_scale={getattr(self.args, 'lr_scale', 1.0)} as float.")
             lr_scale = 1.0
         try:
             for opt in (self.args.optimizers or []):
@@ -683,6 +690,7 @@ def compute_group_max_seq_len(arg_list: List[Hyperparameters]) -> int:
         try:
             lens = [int(v.get("sequence_length")) for v in (getattr(a, "val_shards", []) or [])]
         except Exception:
+            logger.error(f"Failed to parse val_shards for {a}")
             lens = []
         if lens:
             max_val = max(max_val, max(lens))
