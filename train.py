@@ -21,7 +21,12 @@ logger = MasterLogger
 
 
 def _parse_grid_item(s: str) -> Tuple[str, List[str]]:
-    """Parse 'key=v1,v2' into (key, [v1, v2])."""
+    """Parse 'key=v1,v2' into (key, [v1, v2]).
+
+    Also accepts optional square brackets around the values part, e.g.:
+      --grid=lr_scale=[0.1,0.3,1.5]
+    and trims stray brackets/quotes around individual items.
+    """
     if s.startswith("--"):
         s = s[2:]
     if s.startswith("grid="):
@@ -29,8 +34,26 @@ def _parse_grid_item(s: str) -> Tuple[str, List[str]]:
     if "=" not in s:
         raise ValueError("--grid expects 'key=v1,v2' format")
     k, v = s.split("=", 1)
-    parts = [p.strip() for p in (v.split(",") if "," in v else [v]) if p.strip() != ""]
-    return k.strip().replace("-", "_"), parts
+    k = k.strip().replace("-", "_")
+    v = v.strip()
+    # Allow optional surrounding [ ] around the values list
+    if len(v) >= 2 and v.startswith("[") and v.endswith("]"):
+        v = v[1:-1]
+    raw_parts = v.split(",") if "," in v else [v]
+    parts: List[str] = []
+    for p in raw_parts:
+        p = p.strip()
+        # Trim any stray brackets in case of spaces like "[ 0.1 ]"
+        if p.startswith("["):
+            p = p[1:]
+        if p.endswith("]"):
+            p = p[:-1]
+        # Strip wrapping quotes
+        if len(p) >= 2 and ((p[0] == p[-1]) and p[0] in "\"'"):
+            p = p[1:-1]
+        if p != "":
+            parts.append(p)
+    return k, parts
 
 
 def main(argv: List[str] | None = None) -> int:
