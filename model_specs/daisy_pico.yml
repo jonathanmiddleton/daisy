@@ -1,7 +1,7 @@
 model_class: models.daisy.daisy_core.DaisyCore
 eos_token_id: 50256
 vocab_size: 50257
-num_layers: 8
+num_layers: 6
 num_heads: 6
 head_dim: 64
 model_dim: 384
