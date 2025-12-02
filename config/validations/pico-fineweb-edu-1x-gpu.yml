@@ -42,8 +42,8 @@ val_shards:
     sequence_length: 65_536
 val_loss_every_tokens:   3_276_800
 # Checkpoints
-checkpoint_warmup_tokens:   1_000_000_001
+checkpoint_warmup_tokens:   100_000_000
 checkpoint_per_n_tokens:     1
-save_checkpoint: false
+save_checkpoint: true
 # Model Definition
 model_spec: daisy_pico
