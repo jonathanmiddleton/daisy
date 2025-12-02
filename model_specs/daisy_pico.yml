@@ -5,7 +5,7 @@ num_layers: 6
 num_heads: 6
 head_dim: 64
 model_dim: 384
-attention_window_len: 65_536
+attention_window_len: 1024
 max_seq_len: 65_536
 use_value_embeddings: true
 attn_all_layers: true
