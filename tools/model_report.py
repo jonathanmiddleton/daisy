@@ -54,7 +54,7 @@ def analyze_scalars(model: nn.Module, hparams: Dict[str, Any], zero_threshold: f
     if L == 0:
         return out
 
-    # Skip weights live on the root module
+    # Skip weights live on the root module (raw parameters)
     skip_w = model.skip_weights.detach().float().cpu().view(-1)
     # Optional reverse mapping later_layer -> earlier_layer
     skip_map = getattr(model, "skip_map", None)
@@ -81,8 +81,26 @@ def analyze_scalars(model: nn.Module, hparams: Dict[str, Any], zero_threshold: f
             sa_list.append(gate.detach().float().cpu().view(()))
     sa_lambdas = torch.stack(sa_list).view(-1) if len(sa_list) > 0 else torch.zeros(0, dtype=skip_w.dtype)
 
+    # Filter Long Skip parameters to only those actually used in computation.
+    # Specifically, for each target layer i in skip_map, the gate uses skip_weights[skip_map[i]].
+    # We collect the unique, valid source indices and compute statistics only over those.
+    used_src_indices: list[int] = []
+    if isinstance(skip_map, dict):
+        seen = set()
+        for tgt, src in skip_map.items():
+            try:
+                src_idx = int(src)
+            except Exception:
+                continue
+            if 0 <= src_idx < skip_w.numel() and src_idx not in seen:
+                seen.add(src_idx)
+                used_src_indices.append(src_idx)
+    used_skip_w = (
+        skip_w[torch.tensor(used_src_indices, dtype=torch.long)] if len(used_src_indices) > 0 else torch.zeros(0, dtype=skip_w.dtype)
+    )
+
     out["present"] = True
-    S = skip_w.numel() + lambdas.numel() + sa_lambdas.numel()
+    S = used_skip_w.numel() + lambdas.numel() + sa_lambdas.numel()
     out["length"] = int(S)
     out["num_layers"] = int(L)
 
@@ -90,9 +108,10 @@ def analyze_scalars(model: nn.Module, hparams: Dict[str, Any], zero_threshold: f
         return (x.abs() <= zero_threshold)
 
     groups = {
+        # Long Skips: only include parameters that are actually used by skip_map
         "skip_weights": {
-            "tensor": skip_w,
-            "near_zero_mask": nz_mask(skip_w),
+            "tensor": used_skip_w,
+            "near_zero_mask": nz_mask(used_skip_w),
         },
         "lambdas": {
             "tensor": lambdas,
@@ -110,12 +129,21 @@ def analyze_scalars(model: nn.Module, hparams: Dict[str, Any], zero_threshold: f
         t = g["tensor"]
         mask = g["near_zero_mask"]
         g["shape"] = list(t.shape)
-        g["num_near_zero"] = int(mask.sum().item())
-        g["frac_near_zero"] = float((mask.float().mean().item()))
-        g["min"] = float(t.min().item())
-        g["max"] = float(t.max().item())
-        g["mean"] = float(t.mean().item())
-        g["std"] = float(t.std(unbiased=False).item())
+        if t.numel() == 0:
+            # No elements: avoid reduction errors and present neutral/NaN stats
+            g["num_near_zero"] = 0
+            g["frac_near_zero"] = 0.0
+            g["min"] = float("nan")
+            g["max"] = float("nan")
+            g["mean"] = float("nan")
+            g["std"] = float("nan")
+        else:
+            g["num_near_zero"] = int(mask.sum().item())
+            g["frac_near_zero"] = float((mask.float().mean().item()))
+            g["min"] = float(t.min().item())
+            g["max"] = float(t.max().item())
+            g["mean"] = float(t.mean().item())
+            g["std"] = float(t.std(unbiased=False).item())
         # Flag layers fully off for skip weights or per‑element for pairs
     fully_off_layers = []
     per_layer = []
