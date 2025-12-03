@@ -60,6 +60,16 @@ if [ "$ROLE" = "master" ]; then
   export MASTER_PORT
   export MASTER_HOSTNAME
 
+  master_cmd=(
+    torchrun
+    --nproc_per_node="$NPROC_PER_NODE"
+    --nnodes="$NNODES"
+    --rdzv_backend=c10d
+    --rdzv_endpoint="$MASTER_ADDR:$MASTER_PORT"
+    --node_rank=0
+    tools/simple_nccl_test.py
+  )
+
   echo
   echo "Execute on each worker:"
   echo "  ./$SCRIPT_NAME worker $MASTER_ADDR $MASTER_PORT $MASTER_HOSTNAME 1"
@@ -72,16 +82,13 @@ if [ "$ROLE" = "master" ]; then
   echo "Master address : $MASTER_ADDR"
   echo "Master port    : $MASTER_PORT"
   echo
-  echo "Starting torchrun on master (node_rank=0)..."
+  printf 'Executing (master):'
+  printf ' %q' "${master_cmd[@]}"
   echo "-----------------------------------------------------------"
+  echo
+  echo
 
-  torchrun \
-    --nproc_per_node="$NPROC_PER_NODE" \
-    --nnodes="$NNODES" \
-    --rdzv_backend=c10d \
-    --rdzv_endpoint="$MASTER_ADDR:$MASTER_PORT" \
-    --node_rank=0 \
-    tools/simple_nccl_test.py
+  "${master_cmd[@]}"
 
 elif [ "$ROLE" = "worker" ]; then
   # Args or env
@@ -102,6 +109,8 @@ elif [ "$ROLE" = "worker" ]; then
   export MASTER_HOSTNAME
   export NODE_RANK
 
+  echo
+  echo "-----------------------------------------------------------"
   echo "Worker configuration:"
   echo "  MASTER_ADDR    = $MASTER_ADDR"
   echo "  MASTER_PORT    = $MASTER_PORT"
@@ -123,17 +132,23 @@ elif [ "$ROLE" = "worker" ]; then
     fi
   fi
   echo
+  worker_cmd=(
+    torchrun
+    --nproc_per_node="$NPROC_PER_NODE"
+    --nnodes="$NNODES"
+    --rdzv_backend=c10d
+    --rdzv_endpoint="$MASTER_ADDR:$MASTER_PORT"
+    --node_rank="$NODE_RANK"
+    tools/simple_nccl_test.py
+  )
 
   echo "Starting torchrun on worker (node_rank=$NODE_RANK)..."
+  printf 'Executing (worker):'
+  printf ' %q' "${worker_cmd[@]}"
+  echo "-----------------------------------------------------------"
   echo
 
-  torchrun \
-    --nproc_per_node="$NPROC_PER_NODE" \
-    --nnodes="$NNODES" \
-    --rdzv_backend=c10d \
-    --rdzv_endpoint="$MASTER_ADDR:$MASTER_PORT" \
-    --node_rank="$NODE_RANK" \
-    tools/simple_nccl_test.py
+  "${worker_cmd[@]}"
 
 else
   echo "Unknown role: $ROLE"
