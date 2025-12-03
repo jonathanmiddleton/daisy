@@ -87,12 +87,8 @@ def build_run_cmd(
     Multi-node behavior (when nnodes and rendezvous info are provided):
     - torchrun --nnodes=NN --nproc_per_node=n --rdzv_backend=c10d --rdzv_endpoint=addr:port [--node_rank=R] train.py
     """
-    if nproc == 1:
-        base_cmd = ["python"]
-    elif nnodes is None or nnodes == 1:
-        # Explicit single-node torchrun
-        base_cmd = ["torchrun", "--standalone", f"--nproc_per_node={nproc}"]
-    else:
+    # Prioritize multi-node first: even with nproc==1 we must use torchrun
+    if nnodes is not None and nnodes > 1:
         # Multi-node torchrun
         base_cmd = ["torchrun", f"--nproc_per_node={nproc}", f"--nnodes={nnodes}"]
         # rendezvous configuration
@@ -100,6 +96,12 @@ def build_run_cmd(
             base_cmd += ["--rdzv_backend=c10d", f"--rdzv_endpoint={master_addr}:{master_port}"]
         if node_rank is not None:
             base_cmd += [f"--node_rank={node_rank}"]
+    elif nproc > 1:
+        # Explicit single-node torchrun
+        base_cmd = ["torchrun", "--standalone", f"--nproc_per_node={nproc}"]
+    else:
+        # Pure single-process run
+        base_cmd = ["python"]
     cmd = base_cmd + ["train.py", config]
 
     # Add grid overrides as proper options first so argparse in train.py can parse them
