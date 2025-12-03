@@ -238,7 +238,7 @@ class DaisyCore(nn.Module):
 
         skip_map = self.skip_map
         skip_weights = self.skip_weights
-        if self.DEBUG_LOG_ENABLED: logger.debug(f"L: {L}, sliding_window_num_blocks: {sliding_window_num_blocks}, skip_map: {skip_map}, skip_weights: {skip_weights}")
+        # if self.DEBUG_LOG_ENABLED: logger.debug(f"L: {L}, sliding_window_num_blocks: {sliding_window_num_blocks}, skip_map: {skip_map}, skip_weights: {skip_weights}")
 
         skip_connections = []
 
