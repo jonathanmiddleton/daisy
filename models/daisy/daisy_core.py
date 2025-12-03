@@ -1,7 +1,7 @@
 import os
 from functools import lru_cache
 from math import floor, log2, ceil
-from typing import Any, Optional, List
+from typing import Any, Optional, List, Dict
 
 import torch
 from torch import nn, Tensor, SymInt
@@ -16,44 +16,36 @@ WINDOW_BLOCK_SIZE = 128
 def next_multiple_of_n(v: float | int, *, n: int):
     return next(x for x in range(n, int(v) + 1 + n, n) if x >= v)
 
-class ZeroEmbedding(nn.Module):
-    def __init__(self, end_dim: int, dtype: torch.dtype = torch.bfloat16, *args: Any, **kwargs: Any):
-        super().__init__(*args, **kwargs)
-        self.end_dim = end_dim
-        self.zero = nn.Buffer(torch.zeros(1, dtype=dtype), persistent=False)  # anchor for device/dtype so that we're moved when .to is called
-
-    @lru_cache(maxsize=1, typed=True)
-    def __call__(self, x: Tensor):
-        # Return a zero tensor shaped like an embedding(x)
-        out_shape = (*x.shape, self.end_dim)
-        #TODO cache these?
-        return torch.zeros(out_shape, dtype=self.zero.dtype, device=x.device, requires_grad=False)
-
-    def _apply(self, fn, recurse=True):
-        super()._apply(fn, recurse)
-
-        try:
-            self.__call__.cache_clear()
-        except AttributeError:
-            pass
-
-        return self
-
-def _pick_value_embedding_layers(attn_layers, value_embeddings: bool):
+def _pick_value_embedding_layers(attn_layers):
+    """Bottom 3 and top 3 attention layers receive value embeddings."""
     K = len(attn_layers)
-    if K < 6 or not value_embeddings:
+    if K < 6:
         return []
     attn_layers = sorted(attn_layers)
     return attn_layers[:3] + attn_layers[-3:]
 
-def _build_ve_modules(L: int, attn_layers: List[int], _in:int, _out:int, value_embeddings: bool):
-    ve_layers = _pick_value_embedding_layers(attn_layers, value_embeddings)
+def _build_ve_layer_map(L: int, ve_layers: List[int], _in: int, _out: int) -> Dict[int, Optional[nn.Embedding]]:
+    """
+    Build a value-embedding layer map with the following pattern:
+
+      - Let K = len(ve_layers) // 2.
+      - Create K embeddings.
+      - Map the first K layers [0, K-1] to these embeddings (1:1).
+      - Map the last K layers [L-K, L-1] to the same embeddings (reused in order).
+      - Omit all middle layers
+    """
+    torch._assert(len(ve_layers) % 2 == 0, f"ve_layers must be an even number of layers, got {len(ve_layers)}")
     if len(ve_layers) == 0:
-        return nn.ModuleList([ZeroEmbedding(_out)]*L)
+        return {i: None for i in range(L)}
     K = len(ve_layers) // 2
+
     embeds = [nn.Embedding(_in, _out) for _ in range(K)]
-    ve_modules = embeds + [ZeroEmbedding(_out)]*(L-2*K) + embeds
-    return ve_modules
+    ve_map: Dict[int, Optional[nn.Embedding]] = {}
+
+    for i in range(len(ve_layers)):
+        ve_map[ve_layers[i]] = embeds[i % K]
+
+    return ve_map
 
 def build_attn_mask(input_seq: Tensor, window_size: int, eos_token_id: int):
     T = input_seq.size(-1)
@@ -112,7 +104,7 @@ class DaisyCore(nn.Module):
 
     def __init__(self, vocab_size: int, num_layers: int, num_heads: int, model_dim: int, max_seq_len: int,
                  head_dim: int, window_size: int = 2048, eos_token_id: int | None = None, desc: dict | None = None,
-                 value_embeddings: bool = True, tied_embeddings: bool = False, attn_all_layers: bool = False,
+                 use_value_embeddings: bool = True, use_tied_embeddings: bool = False, attn_all_layers: bool = False,
                  attn_impl: str = 'standard', dynamic_shapes: bool = False):
         super().__init__()
         if eos_token_id is None:
@@ -144,13 +136,20 @@ class DaisyCore(nn.Module):
         self.eos_token_id = int(eos_token_id)
         self.embed = nn.Embedding(vocab_size, model_dim)
         self.attn_layers = [i for i in range(num_layers)] if attn_all_layers else _pick_attention_layers(num_layers, attn_impl=attn_impl)
-        self.zero_embedding = ZeroEmbedding(end_dim=self.embed.weight.size(1), dtype=torch.bfloat16) # TODO strongly reconsider this
-        self.value_embeds = nn.ModuleList(_build_ve_modules(num_layers, self.attn_layers,vocab_size, model_dim, value_embeddings))
+        self.use_value_embeddings = use_value_embeddings
+
+        self.ve_layers = []
+        self.ve_modules: nn.ModuleList[nn.Embedding] = nn.ModuleList([])
+        self.ve_module_map = {}
+        if self.use_value_embeddings:
+            self.ve_layers = _pick_value_embedding_layers(self.attn_layers)
+            self.ve_module_map: Dict[int, Optional[nn.Embedding]] = _build_ve_layer_map(num_layers, self.ve_layers, vocab_size, model_dim)
+            self.ve_modules: nn.ModuleList[nn.Embedding] = nn.ModuleList({id(m): m for m in self.ve_module_map.values()}.values()) # register unique modules
 
         self.attn_impl_id = self.attn_impl_ids.get_attn_impl_id(attn_impl)
         self.blocks = nn.ModuleList(
-            [Block(model_dim, num_heads, max_seq_len, i, head_dim, i in self.attn_layers, attn_impl, dynamic_shapes=dynamic_shapes) for i in range(num_layers)])
-        if tied_embeddings:
+            [Block(model_dim, num_heads, max_seq_len, i, head_dim, i in self.attn_layers, attn_impl, dynamic_shapes=dynamic_shapes, receives_ve=(i in self.ve_layers)) for i in range(num_layers)])
+        if use_tied_embeddings:
             nn.init.normal_(self.embed.weight, mean=0.0, std=0.02)
             self.lm_head_w = self.embed.weight
         else:
@@ -163,7 +162,7 @@ class DaisyCore(nn.Module):
                 nn.init.normal_(self.lm_head_w, mean=0.0, std=0.02)
         self.window_size = window_size
         assert num_layers % 2 == 0
-        self.skip_weights = nn.Parameter(torch.ones(num_layers))
+        self.skip_weights = nn.Parameter(torch.ones(num_layers)*2.945) # init 95/5 gate
         self.desc = desc  # non-functional, self-describing metadata
 
     def reset_history(self):
@@ -219,16 +218,17 @@ class DaisyCore(nn.Module):
         block_masks = (cycle * ((L + 3) // 4))[:L - 1] + [long_bm] #TODO adjust cycle for kimi_linear L,S,L,_
         return block_masks
 
-    def compute_value_embeddings(self, input_seq: Tensor) -> list[Tensor]:
-        ve = [norm(value_embed(input_seq)) for value_embed in self.value_embeds]
-        return ve
-
+    def compute_value_embeddings(self, input_seq: Tensor) -> Dict[int, Tensor]:
+        ve_map: Dict[int, Tensor] = {}
+        for i in self.ve_module_map:
+            ve_map[i] = self.ve_module_map[i](input_seq)
+        return ve_map
 
     def forward(self, input_seq: Tensor, sliding_window_num_blocks: Tensor, target_seq: Tensor = None, loss_chunks: int = 4, output_logits: bool = False):
         torch._assert(input_seq.ndim == 1, "input_seq must be 1D")
         L = len(self.blocks)
 
-        ve = self.compute_value_embeddings(input_seq)
+        ve_map:Dict[int, Tensor] = self.compute_value_embeddings(input_seq)
 
         x = x0 = norm(self.embed(input_seq)[None])
 
@@ -248,8 +248,12 @@ class DaisyCore(nn.Module):
 
         for i in range(L):
             if i in skip_map:
-                x = x + skip_weights[skip_map[i]] * skip_connections[skip_map[i]]
-            x = self.blocks[i](x, ve[i], x0,  block_mask=block_masks[i], attn_mask=attn_mask)
+                gate = torch.sigmoid(skip_weights[skip_map[i]])
+                x = x*gate + (1-gate)*skip_connections[skip_map[i]]
+            if i in ve_map:
+                x = self.blocks[i](x, ve_map[i], x0,  block_mask=block_masks[i], attn_mask=attn_mask)
+            else:
+                x = self.blocks[i](x, None, x0, block_mask=block_masks[i], attn_mask=attn_mask)
             skip_connections.append(x)
 
         x = norm(x)
@@ -289,10 +293,15 @@ class DaisyCore(nn.Module):
         k_new_list = []
         v_new_list = []
         skip_connections = []
+        ve_map: Dict[int, Tensor] = self.compute_value_embeddings(token_id)
         for i in range(L):
             if i in skip_map:
-                x = x + skip_weights[skip_map[i]] * skip_connections[skip_map[i]]
-            y, k_new, v_new = self.blocks[i].step(x, ve[i], x0, k_ctxs[i], v_ctxs[i], pos, window)
+                gate = torch.sigmoid(skip_weights[skip_map[i]])
+                x = x*gate + (1-gate)*skip_connections[skip_map[i]]
+            if i in ve_map:
+                y, k_new, v_new = self.blocks[i].step(x, ve_map[i], x0, k_ctxs[i], v_ctxs[i], pos, window)
+            else:
+                y, k_new, v_new = self.blocks[i].step(x, None, x0, k_ctxs[i], v_ctxs[i], pos, window)
             x = y
             skip_connections.append(x)
             k_new_list.append(k_new)
@@ -301,7 +310,7 @@ class DaisyCore(nn.Module):
         logits = F.linear(x.flatten(end_dim=1).bfloat16(), self.lm_head_w.bfloat16()).float()
         return logits, k_new_list, v_new_list
 
-# TODO why is window unused?
+# TODO restore windowing
     def prefill(self, input_seq: Tensor, window: Optional[int] = None, debug: bool = False): #TODO   merge prefill/forward
         assert input_seq.ndim == 2
         B, T = input_seq.shape
@@ -323,10 +332,15 @@ class DaisyCore(nn.Module):
         skip_weights = self.skip_weights
 
         k_list, v_list, skip_connections = [], [], []
+        ve_map: Dict[int, Tensor] = self.compute_value_embeddings(input_seq)
         for i in range(L):
             if i in skip_map:
-                x = x + skip_weights[skip_map[i]] * skip_connections[skip_map[i]]
-            x, k, v = self.blocks[i].prefill(x, ve[i], x0, debug=debug)
+                gate = torch.sigmoid(skip_weights[skip_map[i]])
+                x = x * gate + (1 - gate) * skip_connections[skip_map[i]]
+            if i in ve_map:
+                x, k, v = self.blocks[i].prefill(x, ve_map[i], x0, debug=debug)
+            else:
+                x, k, v  = self.blocks[i].prefill(x, None, x0, debug=debug)
             skip_connections.append(x)
             k_list.append(k)
             v_list.append(v)

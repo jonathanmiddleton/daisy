@@ -1,11 +1,13 @@
 model_class: models.daisy.daisy_core.DaisyCore
 eos_token_id: 50256
 vocab_size: 50257
-num_layers: 4
+num_layers: 8
 num_heads: 1
 head_dim: 128
 model_dim: 128
 attention_window_len: 1024
 max_seq_len: 1024
-value_embeddings: true
-tied_embeddings: false
+use_value_embeddings: true
+use_tied_embeddings: false
+attn_all_layers: true
+attn_impl: 'standard' # 'standard' or `kimi_linear`

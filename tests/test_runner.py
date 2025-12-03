@@ -61,30 +61,32 @@ def test_split_override_and_cartesian():
     assert runner._split_override("foo=1,2,3") == ("foo", ["1", "2", "3"])  # csv values
     assert runner._split_override("--bar=baz") == ("bar", ["baz"])  # prefixed
 
-    combos = runner._cartesian_product([("a", ["x", "y"]), ("b", ["1"])])
-    assert combos == [[("a", "x"), ("b", "1")], [("a", "y"), ("b", "1")]]
+    # helper to detect commas
+    assert runner._has_commas(["1,2"]) is True
+    assert runner._has_commas(["1", "2"]) is False
 
 
 def test_build_torchrun_cmd_basic():
     cmd = runner.build_run_cmd(
         nproc=2,
-        config="config/test_tiny.yml",
+        config="config/validations/pico-fineweb-edu-single-gpu.yml",
         checkpoint="ckpt.pt",
         extra_long_opts=["--full_windows=true", "--some-flag"],
-        overrides=[("grad_acc_steps", "2"), ("wandb_log", "false")],
+        singleton_overrides=[("wandb_log", "false")],
+        grid_overrides=[("grad_acc_steps", ["2", "3"])],
     )
     # Ensure structure and values are present
     assert cmd[:4] == ["torchrun", "--standalone", "--nproc_per_node=2", "train.py"]
-    assert "config/test_tiny.yml" in cmd
+    assert "config/validations/pico-fineweb-edu-single-gpu.yml" in cmd
     assert "--init_checkpoint=ckpt.pt" in cmd
     assert "--full_windows=true" in cmd and "--some-flag" in cmd
-    assert "--grad_acc_steps=2" in cmd and "--wandb_log=false" in cmd
+    assert "--grid=grad_acc_steps=2,3" in cmd and "--wandb_log=false" in cmd
 
 
 def test_main_invokes_subprocess_with_env_and_overrides(fake_popen, tmp_logfile, monkeypatch):
     # Provide argv with 2-value override to trigger 2 runs and RUN_ID increment
     argv = [
-        "config/test_tiny.yml",
+        "config/validations/pico-fineweb-edu-single-gpu.yml",
         "-n", "1" if is_mac_os() else "2",
         "-p", "ckpt.pt",
         "-s", "7",
@@ -101,8 +103,8 @@ def test_main_invokes_subprocess_with_env_and_overrides(fake_popen, tmp_logfile,
     rc = runner.main(argv)
     assert rc == 0
 
-    # Should have launched two subprocesses (Cartesian product of grad_acc_steps 2 values)
-    assert len(fake_popen) == 2
+    # Should have launched a single subprocess; train.py will handle both runs in-process
+    assert len(fake_popen) == 1
 
     # First cmd assertions
     first_cmd = fake_popen[0].cmd
@@ -112,27 +114,22 @@ def test_main_invokes_subprocess_with_env_and_overrides(fake_popen, tmp_logfile,
         assert first_cmd[3] == "train.py"
     else:
         assert first_cmd[1] == "train.py"
-    assert "config/test_tiny.yml" in first_cmd
+    assert "config/validations/pico-fineweb-edu-single-gpu.yml" in first_cmd
     assert "--init_checkpoint=ckpt.pt" in first_cmd
     # passthrough long opts and overrides present
     assert "--full_windows=true" in first_cmd
     assert "--misc-flag" in first_cmd
-    assert "--grad_acc_steps=2" in first_cmd
+    assert "--grid=grad_acc_steps=2,3" in first_cmd
     assert "--wandb_log=false" in first_cmd
 
-    # Second run should have grad_acc_steps=3
-    second_cmd = fake_popen[1].cmd
-    assert "--grad_acc_steps=3" in second_cmd
-
-    # BEGIN_SHARD and RUN_ID env must be set. RUN_ID increments (10, 11)
+    # BEGIN_SHARD and RUN_ID env must be set. RUN_ID is base value; train.py increments internally
     assert os.environ.get("BEGIN_SHARD") == "7"
-    # The last run sets RUN_ID to 11
-    assert os.environ.get("RUN_ID") == "11"
+    assert os.environ.get("RUN_ID") == "10"
 
 
 def test_main_can_forward_overrides_for_all_config_keys(fake_popen, tmp_logfile):
     # Load a real config YAML and create an override token for every top-level key
-    cfg_path = Path(__file__).resolve().parents[1] / "config" / "pretrain_420m.yml"
+    cfg_path = Path(__file__).resolve().parents[1] / "config" / "validations" / "pico-fineweb-edu-single-gpu.yml"
     data = yaml.safe_load(cfg_path.read_text())
 
     override_tokens = []

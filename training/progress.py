@@ -15,35 +15,15 @@ class ProgressMeter:
         checkpoint_warmup_tokens: int = 0,
     ) -> None:
         """
-        Initializes a tracking object to manage token processing and evaluation or checkpoint scheduling.
+        Initializes the object with a token processing schedule and optional evaluation
+        and checkpointing configurations.
 
-        This class facilitates the process of managing checkpoints and evaluations during token
-        processing. It ensures that these actions conform to a set of specified intervals and
-        warmup limits.
-
-        Parameters:
-            target_tokens (int): The total number of tokens targeted to process.
-            eval_every_tokens (int | None): Optional interval in tokens after which evaluation
-                                              is triggered. If None, no evaluation is scheduled.
-            checkpoint_per_n_tokens (int | None): Optional interval in tokens to trigger a
-                                                  checkpoint. If None or set to a non-positive
-                                                  number, no scheduled checkpoints occur.
-            checkpoint_warmup_tokens (int): Number of initial tokens to process before activating
-                                             checkpoint scheduling. Defaults to 0.
-
-        Attributes:
-            target_tokens (int): The total number of tokens targeted to process.
-            tokens_processed (int): The count of tokens processed so far, initialized to 0.
-            eval_every_tokens (int | None): The interval in tokens after which evaluation is
-                                             triggered, if specified.
-            next_eval_at (int | None): The next token count at which an evaluation is scheduled,
-                                       if applicable.
-            checkpoint_per_n_tokens (int | None): The interval in tokens to trigger a checkpoint,
-                                                  if applicable.
-            checkpoint_warmup_tokens (int): The number of tokens to process before enabling the
-                                             checkpoint mechanism.
-            next_checkpoint_at (int | None): The next token count at which a checkpoint is scheduled
-                                              after accounting for warmup, if applicable.
+        :param target_tokens: The total number of tokens to be processed.
+        :param eval_every_tokens: Optional. The number of tokens after which an evaluation is scheduled.
+        :param checkpoint_per_n_tokens: Optional. The number of tokens after which a checkpoint
+            is scheduled. If set to 0, checkpointing will occur immediately after warmup.
+        :param checkpoint_warmup_tokens: Optional. The number of tokens to process during
+            the warmup phase before enabling checkpointing.
         """
         self.target_tokens = int(target_tokens)
         self.tokens_processed = 0

@@ -1,0 +1,51 @@
+# Logging
+wandb_log: true
+wandb_project: 'daisy'
+wandb_run_name: 'milli-dclm'
+wandb_group: 'milli-dclm'
+# Torch config
+torch.coordinate_descent_tuning: true
+# Pretraining configuration
+train_shards: "data/dclm_baseline/dclm_baseline_train_*.bin"
+target_tokens: 18_000_000_000
+cooldown_frac: 1
+learning_rate_schedule: cosine_decay
+learning_rate_floor: 0.1
+training_sequence_length: 37_120
+train_attention_window_len: 4096
+# Optimizers configuration
+optimizers:
+  - type: AdamW
+    betas: [0.9, 0.95]
+    eps: 1.0e-10
+    weight_decay: 0.01
+    fused: true
+    params:
+      - group: head_params
+        lr: 0.001732
+      - group: embed_params
+        lr: 0.055424
+      - group: scalar_params
+        lr: 0.006495
+  - type: Muon
+    momentum: 0.95
+    weight_decay: 0.01
+    params:
+      - group: hidden_matrix_params
+        lr: 0.0125
+full_windows: false
+# Gradient accumulation
+grad_acc_steps: 2
+# Evaluations
+val_shards:
+  - type: "dclm_baseline"
+    path: "data/dclm_baseline/dclm_baseline_val_*.bin"
+    target_tokens: 10_485_760
+    sequence_length: 131_072
+val_loss_every_tokens:   65_536_000
+# Checkpoints
+checkpoint_warmup_tokens:   1_000_000_000
+checkpoint_per_n_tokens:     1
+save_checkpoint: true
+# Model Definition
+model_spec: daisy_milli

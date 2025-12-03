@@ -61,11 +61,11 @@ class CompilableFusedRMSNormGated(nn.Module):
 
         return normed * gate_activated
 
-
+# TODO refactor for ve gates
 class KimiLinearSelfAttention(nn.Module):
     # noinspection PyUnusedLocal
     def __init__(self, dim: int, num_heads: int, max_seq_len: int, head_dim: int, expand_v: float = 1.0, mode: str = 'chunk',
-                 use_short_conv: bool = True, allow_neg_eigval: bool = False, conv_size: int = 4, conv_bias: bool = False, layer_idx: int = 0):
+                 use_short_conv: bool = True, allow_neg_eigval: bool = False, conv_size: int = 4, conv_bias: bool = False, layer_idx: int = 0, receives_ve: bool = False):
         assert allow_neg_eigval == False, "allow_neg_eigval is not yet supported"
         assert mode == 'chunk', "mode must be 'chunk'; fused_recurrent unsupported for training, future support for inference"
         super().__init__()
@@ -138,7 +138,7 @@ class KimiLinearSelfAttention(nn.Module):
         return o, rec
 
 
-    def _forward_core(self, x: Tensor, ve: Optional[Tensor], sa_lambdas: Optional[Tensor], attn_mask: Optional[Tensor], use_cache: bool):
+    def _forward_core(self, x: Tensor, ve: Optional[Tensor],  attn_mask: Optional[Tensor], use_cache: bool):
         torch._assert(x.shape[0] == 1, "batch size must be 1") # TODO remove
         b, s, _ = x.shape
         # mode = "fused_recurrent" if s <= 64 and not self.training else self.mode

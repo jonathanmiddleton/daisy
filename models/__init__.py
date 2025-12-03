@@ -70,8 +70,8 @@ def model_from_spec(spec_or_cfg: str | dict | ModelSpec | Any, device: str, over
     model_dim = int(spec.model_dim)
     head_dim = int(spec.head_dim)
     max_seq_len = int(spec.max_seq_len)
-    value_embeddings = bool(spec.value_embeddings)
-    tied_embeddings = bool(spec.tied_embeddings)
+    use_value_embeddings = bool(spec.use_value_embeddings)
+    use_tied_embeddings = bool(spec.use_tied_embeddings)
     attn_all_layers = bool(spec.attn_all_layers)
     attn_impl = str(spec.attn_impl)
 
@@ -85,8 +85,8 @@ def model_from_spec(spec_or_cfg: str | dict | ModelSpec | Any, device: str, over
         head_dim=head_dim,
         eos_token_id=eos_token_id,
         desc=asdict(spec),
-        value_embeddings=value_embeddings,
-        tied_embeddings=tied_embeddings,
+        use_value_embeddings=use_value_embeddings,
+        use_tied_embeddings=use_tied_embeddings,
         attn_all_layers = attn_all_layers,
         attn_impl=attn_impl,
         dynamic_shapes = dynamic_shapes

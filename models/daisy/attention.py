@@ -72,7 +72,7 @@ class Rotary(nn.Module):
 
 
 class CausalSelfAttention(nn.Module):
-    def __init__(self, dim: int, num_heads: int, max_seq_len: int, head_dim, dynamic_shapes: bool = False): #TODO automatically extend Rotary cache to avoid need for max_seq_len param
+    def __init__(self, dim: int, num_heads: int, max_seq_len: int, head_dim, dynamic_shapes: bool = False, receives_ve: bool = False): #TODO automatically extend Rotary cache to avoid need for max_seq_len param
         super().__init__()
         torch._assert(dim % num_heads == 0, "dim must be divisible by num_heads")
         self.num_heads = num_heads
@@ -90,7 +90,8 @@ class CausalSelfAttention(nn.Module):
         self.attn_scale = 0.12
         self.last_q = None
         self.last_k = None
-        self.g_ve = nn.Parameter(torch.tensor(10.0))
+        self.receives_ve = receives_ve
+        self.g_ve = nn.Parameter(torch.tensor(0.0)) if self.receives_ve else None # init 50/50 gate
 
         if is_flex_available(dynamic_shapes=self.dynamic_shapes): # dynamic shapes fail because of implied constraints within BlockMask
             self.forward = self.forward_flex
@@ -121,11 +122,13 @@ class CausalSelfAttention(nn.Module):
         return q, k, v
 
 
-    def _qkv_common(self, x: torch.Tensor, ve: torch.Tensor):
+    def _qkv_common(self, x: torch.Tensor, ve: torch.Tensor | None):
         q, k, v = self._calc_qkv(x)
         dtype = q.dtype
-        g_x = torch.sigmoid(self.g_ve).to(dtype)
-        v = g_x * v + (1.0 - g_x) * ve.view_as(v).to(dtype)
+        if self.receives_ve:
+            g_x = torch.sigmoid(self.g_ve).to(dtype)
+            torch._assert(ve is not None, "ve must be provided when receives_ve=True")
+            v = g_x * v + (1.0 - g_x) * ve.view_as(v).to(dtype)
         q_ = q.transpose(1, 2)
         k_ = k.transpose(1, 2)
         v_ = v.transpose(1, 2)
@@ -142,11 +145,11 @@ class CausalSelfAttention(nn.Module):
         y = torch.nn.functional.linear(y, self.qkvo_w[3])
         return y, k_.transpose(1, 2), v_.transpose(1, 2), q_.transpose(1, 2)
 
-    def forward_sdpa(self, x: torch.Tensor, ve: torch.Tensor,  attn_mask: Tensor, block_mask: Optional[Tensor] = None):
+    def forward_sdpa(self, x: torch.Tensor, ve: torch.Tensor | None,  attn_mask: Tensor, block_mask: Optional[Tensor] = None):
         y, _, _, _ = self._sdpa_common(x, ve,  attn_mask=attn_mask)
         return y
 
-    def forward_flex(self, x: torch.Tensor, ve: torch.Tensor,  block_mask: BlockMask, attn_mask: Tensor):
+    def forward_flex(self, x: torch.Tensor, ve: torch.Tensor | None,  block_mask: BlockMask, attn_mask: Tensor):
         B, T = x.size(0), x.size(1)
         q_, k_, v_ = self._qkv_common(x, ve)
         y = _flex_call(q_, k_, v_, block_mask=block_mask, scale=self.attn_scale)
@@ -154,7 +157,7 @@ class CausalSelfAttention(nn.Module):
         y = torch.nn.functional.linear(y, self.qkvo_w[3])
         return y
 
-    def prefill(self, x: torch.Tensor, ve: torch.Tensor,  attn_mask: Tensor = None, debug: bool = False):
+    def prefill(self, x: torch.Tensor, ve: torch.Tensor | None,  attn_mask: Tensor = None, debug: bool = False):
         #attn_mask: for future document-causal masking
         y, k, v, q = self._sdpa_common(x, ve)
 
@@ -163,14 +166,16 @@ class CausalSelfAttention(nn.Module):
             self.last_k = k
         return y, k.transpose(1, 2), v.transpose(1, 2)
 
-    def step(self, x, k_ctx: Tensor, v_ctx: Tensor, pos: int, ve: Tensor, window: int):
+    def step(self, x, k_ctx: Tensor, v_ctx: Tensor, pos: int, ve: Tensor | None, window: int):
         B, T = x.size(0), 1
         q, k, v = self._calc_qkv_pos(x, pos)
         dtype = q.dtype
 
-        ve = ve.to(dtype)
-        g_x = torch.sigmoid(self.g_ve).to(dtype)
-        v = g_x * v + (1.0 - g_x) * ve.view_as(v).to(dtype)
+        if self.receives_ve:
+            ve = ve.to(dtype)
+            g_x = torch.sigmoid(self.g_ve).to(dtype)
+            torch._assert(ve is not None, "ve must be provided when receives_ve=True")
+            v = g_x * v + (1.0 - g_x) * ve.view_as(v).to(dtype)
 
         n = k_ctx.size(1)
         r = n if window is None else min(n, max(window - 1, 0))

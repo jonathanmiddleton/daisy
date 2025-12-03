@@ -54,25 +54,17 @@ device = cli.device
 model, hparams = model_from_checkpoint(cli.checkpoint, device=device)
 model.eval()
 
-if device != 'cpu':
-    model = torch.compile(model, dynamic=False)
 enc = tiktoken.get_encoding("gpt2")
 encode = lambda s: enc.encode(s, allowed_special={"<|endoftext|>"})
 decode = lambda l: enc.decode(l)
 
 use_instruct = not cli.base
 
-prompt = "Albert Einstein (14 March 1879 – 18 April 1955) was a German-born" if not use_instruct and cli.prompt is None else None
+prompt = "Albert Einstein (14 March 1879 – 18 April 1955) was a German-born" if not use_instruct and cli.prompt is None else cli.prompt
 
 effective_temperature = cli.temperature if use_instruct else 0.0
 
-# for the instruction tuned checkpoint the prompt should follow this format
-'''
-### Instruction:
-{prompt}
-
-### Response:
-'''
+# for an instruction tuned checkpoint the prompt should follow this format
 template = "### Instruction:\n{prompt}\n\n### Response:\n" if use_instruct else "{prompt}"
 
 gen = Generator(

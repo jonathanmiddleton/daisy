@@ -22,8 +22,8 @@ class ModelSpec:
     eos_token_id: int
     attention_window_len: int  # largest sliding attention window supported by the model
     max_seq_len: int  # maximum context size supported by the model
-    value_embeddings: bool = True
-    tied_embeddings: bool = False
+    use_value_embeddings: bool = True
+    use_tied_embeddings: bool = False
     attn_all_layers: bool = False
     attn_impl: str = 'standard'
 

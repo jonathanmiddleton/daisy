@@ -54,8 +54,10 @@ def analyze_scalars(model: nn.Module, hparams: Dict[str, Any], zero_threshold: f
     if L == 0:
         return out
 
-    # Skip weights live on the root module
+    # Skip weights live on the root module (raw parameters)
     skip_w = model.skip_weights.detach().float().cpu().view(-1)
+    # Optional reverse mapping later_layer -> earlier_layer
+    skip_map = getattr(model, "skip_map", None)
 
     # Residual mix scalars: one per block at .g_x
     lambdas_list = []
@@ -79,8 +81,26 @@ def analyze_scalars(model: nn.Module, hparams: Dict[str, Any], zero_threshold: f
             sa_list.append(gate.detach().float().cpu().view(()))
     sa_lambdas = torch.stack(sa_list).view(-1) if len(sa_list) > 0 else torch.zeros(0, dtype=skip_w.dtype)
 
+    # Filter Long Skip parameters to only those actually used in computation.
+    # Specifically, for each target layer i in skip_map, the gate uses skip_weights[skip_map[i]].
+    # We collect the unique, valid source indices and compute statistics only over those.
+    used_src_indices: list[int] = []
+    if isinstance(skip_map, dict):
+        seen = set()
+        for tgt, src in skip_map.items():
+            try:
+                src_idx = int(src)
+            except Exception:
+                continue
+            if 0 <= src_idx < skip_w.numel() and src_idx not in seen:
+                seen.add(src_idx)
+                used_src_indices.append(src_idx)
+    used_skip_w = (
+        skip_w[torch.tensor(used_src_indices, dtype=torch.long)] if len(used_src_indices) > 0 else torch.zeros(0, dtype=skip_w.dtype)
+    )
+
     out["present"] = True
-    S = skip_w.numel() + lambdas.numel() + sa_lambdas.numel()
+    S = used_skip_w.numel() + lambdas.numel() + sa_lambdas.numel()
     out["length"] = int(S)
     out["num_layers"] = int(L)
 
@@ -88,9 +108,10 @@ def analyze_scalars(model: nn.Module, hparams: Dict[str, Any], zero_threshold: f
         return (x.abs() <= zero_threshold)
 
     groups = {
+        # Long Skips: only include parameters that are actually used by skip_map
         "skip_weights": {
-            "tensor": skip_w,
-            "near_zero_mask": nz_mask(skip_w),
+            "tensor": used_skip_w,
+            "near_zero_mask": nz_mask(used_skip_w),
         },
         "lambdas": {
             "tensor": lambdas,
@@ -108,12 +129,21 @@ def analyze_scalars(model: nn.Module, hparams: Dict[str, Any], zero_threshold: f
         t = g["tensor"]
         mask = g["near_zero_mask"]
         g["shape"] = list(t.shape)
-        g["num_near_zero"] = int(mask.sum().item())
-        g["frac_near_zero"] = float((mask.float().mean().item()))
-        g["min"] = float(t.min().item())
-        g["max"] = float(t.max().item())
-        g["mean"] = float(t.mean().item())
-        g["std"] = float(t.std(unbiased=False).item())
+        if t.numel() == 0:
+            # No elements: avoid reduction errors and present neutral/NaN stats
+            g["num_near_zero"] = 0
+            g["frac_near_zero"] = 0.0
+            g["min"] = float("nan")
+            g["max"] = float("nan")
+            g["mean"] = float("nan")
+            g["std"] = float("nan")
+        else:
+            g["num_near_zero"] = int(mask.sum().item())
+            g["frac_near_zero"] = float((mask.float().mean().item()))
+            g["min"] = float(t.min().item())
+            g["max"] = float(t.max().item())
+            g["mean"] = float(t.mean().item())
+            g["std"] = float(t.std(unbiased=False).item())
         # Flag layers fully off for skip weights or per‑element for pairs
     fully_off_layers = []
     per_layer = []
@@ -133,16 +163,36 @@ def analyze_scalars(model: nn.Module, hparams: Dict[str, Any], zero_threshold: f
                 sa_val_list = [v]
                 sa_nz_list = [bool(abs(v) <= zero_threshold)]
 
+        # Determine which skip weight parameter gates this target layer (if any)
+        long_skip_param = None
+        long_skip_nz = None
+        try:
+            if isinstance(skip_map, dict) and i in skip_map:
+                src_idx = int(skip_map[i])
+                if 0 <= src_idx < skip_w.numel():
+                    v = float(skip_w[src_idx].item())
+                    long_skip_param = v
+                    long_skip_nz = bool(abs(v) <= zero_threshold)
+        except Exception:
+            # Be robust in case of unexpected types
+            long_skip_param = None
+            long_skip_nz = None
+
         layer_info = {
             "layer": i,
+            # Raw skip weight by index for completeness/summary (not used for display)
             "skip_w": float(skip_w[i].item()),
             "skip_w_near_zero": bool(abs(skip_w[i].item()) <= zero_threshold),
+            # Skip parameter that actually gates this target layer (if receives a long skip)
+            "long_skip_param": long_skip_param,
+            "long_skip_near_zero": long_skip_nz,
             "lambda": lam_list,
             "lambda_near_zero": lam_nz_list,
             "sa_lambda": sa_val_list,
             "sa_lambda_near_zero": sa_nz_list,
         }
-        if layer_info["skip_w_near_zero"]:
+        # Track layers whose effective long-skip gating param is near zero
+        if long_skip_nz is True:
             fully_off_layers.append(i)
         per_layer.append(layer_info)
 
@@ -153,6 +203,41 @@ def analyze_scalars(model: nn.Module, hparams: Dict[str, Any], zero_threshold: f
         g.get("num_near_zero", 0) > 0 for g in out["groups"].values()
     )
     return out
+
+
+def unwrap_model(m: nn.Module) -> nn.Module:
+    """
+    Best-effort unwrap of common training wrappers (DDP/DataParallel/FSDP/Lightning/etc.)
+    to get the underlying model implementation for introspection and reporting.
+
+    This avoids tight dependencies on those packages by only checking attributes.
+    """
+    seen = set()
+    cur = m
+    # Limit the depth to prevent accidental cycles
+    for _ in range(10):
+        if not isinstance(cur, nn.Module):
+            break
+        obj_id = id(cur)
+        if obj_id in seen:
+            break
+        seen.add(obj_id)
+
+        next_mod = None
+        # Common wrappers expose the wrapped module under one of these names
+        for attr in ("module", "model", "_orig_mod", "_original_module", "_wrapped_module"):
+            try:
+                cand = getattr(cur, attr, None)
+                if isinstance(cand, nn.Module):
+                    next_mod = cand
+                    break
+            except Exception:
+                # Be robust to properties that may raise
+                continue
+        if next_mod is None:
+            break
+        cur = next_mod
+    return cur
 
 
 def build_report(model: nn.Module, hparams: Optional[Dict[str, Any] | Hyperparameters] = None, zero_threshold: float = 1e-3) -> Dict[str, Any]:
@@ -198,21 +283,23 @@ def build_report(model: nn.Module, hparams: Optional[Dict[str, Any] | Hyperparam
     report["param_megabytes"] = float(bytes_ / (1024 ** 2)) if bytes_ else None
 
     # DaisyCore-specific info if available
-    from models.daisy.daisy_core import DaisyCore  # local import
-    if isinstance(model, DaisyCore):
-        L = len(model.blocks)
+    from models.daisy.daisy_core import DaisyCore   
+    base_model = unwrap_model(model)
+    if isinstance(base_model, DaisyCore):
+        L = len(base_model.blocks)
         report.setdefault("model", {})
         report["model"].update({
             "type": "DaisyCore",
             "num_layers": L,
-            "has_attn_every_layer": all(getattr(b, "attn", None) is not None for b in model.blocks),
-            "attn_off_layers": [i for i, b in enumerate(model.blocks) if getattr(b, "attn", None) is None],
-            "lm_head_rows": int(model.lm_head_w.shape[0]) if hasattr(model, "lm_head_w") else None,
-            "lm_head_cols": int(model.lm_head_w.shape[1]) if hasattr(model, "lm_head_w") else None,
+            "has_attn_every_layer": all(getattr(b, "attn", None) is not None for b in base_model.blocks),
+            "attn_off_layers": [i for i, b in enumerate(base_model.blocks) if getattr(b, "attn", None) is None],
+            "lm_head_rows": int(base_model.lm_head_w.shape[0]) if hasattr(base_model, "lm_head_w") else None,
+            "lm_head_cols": int(base_model.lm_head_w.shape[1]) if hasattr(base_model, "lm_head_w") else None,
         })
 
     # Scalars analysis
-    scalars_info = analyze_scalars(model, hparams, zero_threshold)
+    # Use the unwrapped model so attributes like .blocks / .skip_weights are visible
+    scalars_info = analyze_scalars(base_model, hparams, zero_threshold)
     report["scalars"] = scalars_info
 
     return report
@@ -291,7 +378,7 @@ def format_report_text(report: Dict[str, Any]) -> str:
         # Per-layer compact print (with sigmoid display for g_x and g_ve)
         # Title/header row: remove extra wording and parentheses, show only column labels aligned
         lines.append("")
-        col1_label = "Long Skip"
+        col1_label = "Long Skip Gate*"
         col2_label = "Sideband Res. Gate*"
         col3_label = "V. Embd Gate*"
 
@@ -312,9 +399,13 @@ def format_report_text(report: Dict[str, Any]) -> str:
         for li in sc.get("per_layer", []):
             i = li["layer"]
 
-            # Long Skip (raw)
-            skip_raw = li.get("skip_w")
-            skip_s_val = fmt_float(skip_raw)
+            # Long Skip: display only for layers that actually receive long skips per skip_map
+            long_skip_param = li.get("long_skip_param", None)
+            if long_skip_param is None:
+                skip_s_val = "-"
+            else:
+                ls_sig = sigmoid_val(long_skip_param)
+                skip_s_val = f"{fmt_float(ls_sig)} / {fmt_float(1.0 - ls_sig)}"
 
             # Sideband Res. Gate (sigmoid of Block.g_x) as "lam / (1-lam)"
             lam_vals = li.get("lambda")

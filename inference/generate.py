@@ -87,7 +87,7 @@ class Generator:
         self.seed = seed
         torch.manual_seed(self.seed)
         self.history = torch.empty(0, dtype=torch.long, device=self.device)
-        self.mps_torch_compile = os.environ.get("DAISY_MPS_TORCH_COMPILE", "1") == "1"
+        self.mps_torch_compile = os.environ.get("DAISY_MPS_TORCH_COMPILE", "0") == "1"
         self.torch_backend_aot = os.environ.get("DAISY_DEBUG_COMPILES", "0") == "1"
         self.debug_mode = os.environ.get("DAISY_DEBUG_MODE", "0") == "1"
         if self.torch_backend_aot:
@@ -97,6 +97,8 @@ class Generator:
         self.sample = torch.compile(_sample, dynamic=False) if COMPILE_SAMPLE else _sample
         self.apply_repetition_penalty = self._maybe_compile(_repetition_penalty)
         self.model_prefill_not_compiled = self.model.prefill
+        self.use_mark_dynamic = True
+        self.use_dynamic_compile = False
 
     def _maybe_compile(self, func):
         """
@@ -113,14 +115,14 @@ class Generator:
             if self.devtype == 'mps':
                 try:
                     logger.debug(f"Compiling function '{func.__name__}' with backend '{backend}'")
-                    f_c = torch.compile(func, dynamic=False, backend=backend)
+                    f_c = torch.compile(func, dynamic=self.use_dynamic_compile, backend=backend)
                 except Exception as e:
                     logger.debug(f"Failed to compile function '{func.__name__}' with backend '{backend}': {e}")
                     f_c = func
             elif self.devtype == 'cuda':
                 try:
                     logger.debug(f"Compiling function '{func.__name__}' with backend '{backend}'")
-                    f_c = torch.compile(func, dynamic=False, backend=backend)
+                    f_c = torch.compile(func, dynamic=self.use_dynamic_compile, backend=backend)
                 except Exception as e:
                     logger.debug(f"Failed to compile function '{func.__name__}' with backend '{backend}': {e}")
                     f_c = func
@@ -185,7 +187,8 @@ class Generator:
                     compiled = self._maybe_compile(self.model.prefill)
                     setattr(self, fn_name, compiled)
                     fn = compiled
-                    torch._dynamo.mark_dynamic(x, 1, min=min_, max=max_)
+                    if self.use_mark_dynamic:
+                        torch._dynamo.mark_dynamic(x, 1, min=min_, max=max_)
                     logger.debug(f"Compiled function '{fn_name}' for input shape {x.shape} and bounds [{min_},{max_}].")
                     break
 
@@ -258,10 +261,12 @@ class Generator:
         for i in range(max_new_tokens):
             # prepare tensors for passing to potentially compiled functions, avoiding recompiles for shape changes
             logits = logits[-1]
-            torch._dynamo.mark_dynamic(logits, 0, min=1, max=self.max_seq_len)
+            if self.use_mark_dynamic:
+                torch._dynamo.mark_dynamic(logits, 0, min=1, max=self.max_seq_len)
             rep_pen_w = 128
             prev_ids = self.history[-rep_pen_w:]
-            torch._dynamo.mark_dynamic(prev_ids, 0, min=2, max=self.max_seq_len)
+            if self.use_mark_dynamic:
+                torch._dynamo.mark_dynamic(prev_ids, 0, min=2, max=self.max_seq_len)
             logits = self.apply_repetition_penalty(logits, prev_ids, self.rep_p_t, self._one)
             tok = self.sample(logits, self.temperature, self.top_k, self.top_p)
             if tok == self.eos_token_id:
