@@ -8,17 +8,22 @@ def main():
     device = torch.device("cuda", local_rank)
     torch.cuda.set_device(device)
 
-    # Tell c10d which device this process uses
     dist.init_process_group(backend="nccl", device_id=device)
 
     rank = dist.get_rank()
-
-    print("rank:", rank)
-    print("local_rank:", local_rank)
+    world_size = dist.get_world_size()
 
     x = torch.ones(1, device=device)
-    dist.all_reduce(x)
-    print("rank", rank, "x", x.item())
+    dist.all_reduce(x)  # default is sum
+
+    result = x.item()
+    print(f"rank {rank} | world_size={world_size} | result={result}")
+
+    assert result == float(world_size), (
+        f"all_reduce sanity check failed: got {result}, "
+        f"expected {world_size} (nnodes * nproc_per_node)"
+    )
+
     dist.barrier()
     dist.destroy_process_group()
 
