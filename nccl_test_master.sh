@@ -71,7 +71,7 @@ if [ "$ROLE" = "master" ]; then
   echo "  $MASTER_ADDR  $MASTER_HOSTNAME"
   echo
   echo "Then execute on each worker:"
-  echo "  $SCRIPT_NAME worker $MASTER_ADDR $MASTER_PORT $MASTER_HOSTNAME 1"
+  echo "  ./$SCRIPT_NAME worker $MASTER_ADDR $MASTER_PORT $MASTER_HOSTNAME 1"
   echo
   echo "Starting torchrun on master (node_rank=0)..."
   echo
