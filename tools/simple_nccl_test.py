@@ -3,17 +3,20 @@ import torch
 import torch.distributed as dist
 
 def main():
-    dist.init_process_group("nccl")
-
-    rank = dist.get_rank()
     local_rank = int(os.environ["LOCAL_RANK"])
     assert 0 <= local_rank < torch.cuda.device_count(), "LOCAL_RANK out of range"
-    torch.cuda.set_device(local_rank)
+    device = torch.device("cuda", local_rank)
+    torch.cuda.set_device(device)
 
-    print("rank: ", rank)
-    print("local_rank: ", local_rank)
+    # Tell c10d which device this process uses
+    dist.init_process_group(backend="nccl", device_id=device)
 
-    x = torch.ones(1, device=f"cuda:{local_rank}")
+    rank = dist.get_rank()
+
+    print("rank:", rank)
+    print("local_rank:", local_rank)
+
+    x = torch.ones(1, device=device)
     dist.all_reduce(x)
     print("rank", rank, "x", x.item())
     dist.barrier()
