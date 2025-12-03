@@ -41,12 +41,12 @@ grad_acc_steps: 2
 val_shards:
   - type: "dclm_baseline"
     path: "data/dclm_baseline/dclm_baseline_val_*.bin"
-    target_tokens: 10_472_840  #10_485_760
-    sequence_length: 46_340   #131_072
+    target_tokens: 10_485_760
+    sequence_length: 131_072
 val_loss_every_tokens:   65_536_000
 # Checkpoints
 checkpoint_warmup_tokens:   1_000_000_000
 checkpoint_per_n_tokens:     1
-save_checkpoint: true
+save_checkpoint: false
 # Model Definition
 model_spec: daisy_milli_sparse
