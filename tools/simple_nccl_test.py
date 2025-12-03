@@ -23,7 +23,7 @@ def main():
         f"all_reduce sanity check failed: got {result}, "
         f"expected {world_size} (nnodes * nproc_per_node)"
     )
-
+    print(f"Success!")
     dist.barrier()
     dist.destroy_process_group()
 

@@ -60,6 +60,10 @@ if [ "$ROLE" = "master" ]; then
   export MASTER_PORT
   export MASTER_HOSTNAME
 
+  echo "Execute on each worker:"
+  echo "  ./$SCRIPT_NAME worker $MASTER_ADDR $MASTER_PORT $MASTER_HOSTNAME 1"
+  echo
+  echo "-----------------------------------------------------------"
   echo "Assuming all hosts are on the same 10.0.0.0/24 network..."
   echo "Open ports 1 - 65535 for hostmask 10.0.0.0/24 on all hosts"
   echo
@@ -67,14 +71,8 @@ if [ "$ROLE" = "master" ]; then
   echo "Master address : $MASTER_ADDR"
   echo "Master port    : $MASTER_PORT"
   echo
-  echo "On each worker host, you may want to add to /etc/hosts:"
-  echo "  $MASTER_ADDR  $MASTER_HOSTNAME"
-  echo
-  echo "Then execute on each worker:"
-  echo "  ./$SCRIPT_NAME worker $MASTER_ADDR $MASTER_PORT $MASTER_HOSTNAME 1"
-  echo
   echo "Starting torchrun on master (node_rank=0)..."
-  echo
+  echo "-----------------------------------------------------------"
 
   torchrun \
     --nproc_per_node="$NPROC_PER_NODE" \
