@@ -23,6 +23,8 @@ from typing import List, Tuple
 from tools.master_logger import MasterLogger
 
 from tools.helpers import is_mac_os
+import socket
+import ipaddress
 
 logger = MasterLogger
 
@@ -63,6 +65,32 @@ def _has_commas(vals: List[str]) -> bool:
     return any(
         ("," in v) for v in vals
     )
+
+
+def _infer_master_addr() -> str | None:
+    """Best-effort inference of a non-loopback IPv4 address for rendezvous.
+
+    Uses a UDP connect trick to determine the primary egress interface IP without
+    sending any packets. Returns None if a suitable non-loopback address cannot be found.
+    """
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            # Doesn't actually send traffic to 8.8.8.8; just forces routing decision
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+        finally:
+            s.close()
+        # Validate non-loopback
+        try:
+            ip_obj = ipaddress.ip_address(ip)
+            if ip_obj.is_loopback:
+                return None
+        except ValueError:
+            return None
+        return ip
+    except Exception:
+        return None
 
 
 def build_run_cmd(
@@ -261,8 +289,34 @@ def main(argv: List[str] | None = None) -> int:
             logger.info(f"BEGIN_SHARD: {begin_shard}")
         logger.info(f"RUN_ID base: {base_run_id}")
         logger.info(f"Extra opts: {' '.join(passthrough_long_opts) if passthrough_long_opts else '(none)'}")
+
+        # Resolve rendezvous for multi-node runs before building the command
+        resolved_master_addr = master_addr
+        resolved_master_port = master_port
         if nnodes and nnodes > 1:
-            logger.info(f"Distributed multi-node: nnodes={nnodes}, node_rank={node_rank}, master={master_addr}:{master_port}")
+            # Default port if not provided
+            if resolved_master_port is None:
+                resolved_master_port = 29500
+                logger.info("No --master-port/MASTER_PORT provided; defaulting to 29500")
+            # If master addr missing, try to infer on rank 0; otherwise, fail fast on workers
+            if not resolved_master_addr:
+                if node_rank in (0, None):
+                    inferred = _infer_master_addr()
+                    if inferred:
+                        resolved_master_addr = inferred
+                        logger.info(f"No --master-addr/MASTER_ADDR provided; inferred MASTER_ADDR={resolved_master_addr}")
+                    else:
+                        logger.error("Unable to infer a non-loopback MASTER_ADDR for rank 0. Please provide --master-addr or set MASTER_ADDR.")
+                        return 2
+                else:
+                    logger.error("Missing --master-addr/MASTER_ADDR on non-master node (node_rank>0). Provide the master's address to avoid rendezvous hang.")
+                    return 2
+
+            # Export to environment for child process consistency
+            os.environ["MASTER_ADDR"] = str(resolved_master_addr)
+            os.environ["MASTER_PORT"] = str(resolved_master_port)
+            # Log final dist setup
+            logger.info(f"Distributed multi-node: nnodes={nnodes}, node_rank={node_rank}, master={resolved_master_addr}:{resolved_master_port}")
 
         # Separate singleton overrides from grids
         singletons: List[Tuple[str, str]] = []
@@ -285,8 +339,8 @@ def main(argv: List[str] | None = None) -> int:
             grid_overrides=grids,
             nnodes=nnodes,
             node_rank=node_rank,
-            master_addr=master_addr,
-            master_port=master_port,
+            master_addr=resolved_master_addr if (nnodes and nnodes > 1) else master_addr,
+            master_port=resolved_master_port if (nnodes and nnodes > 1) else master_port,
         )
         logger.info("\n=== Running single multi-run process: " + shlex.join(cmd))
         rc = _stream_subprocess(cmd, log_fp)
