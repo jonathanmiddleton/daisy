@@ -1,6 +1,10 @@
 #!/usr/bin/bash
 set -euo pipefail
 
+#export NCCL_IB_DISABLE=1
+#export NCCL_DEBUG=INFO
+#export NCCL_DEBUG_SUBSYS=INIT,GRAPH,ENV
+
 SCRIPT_NAME="$(basename "$0")"
 
 usage() {
