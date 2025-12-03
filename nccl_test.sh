@@ -60,6 +60,7 @@ if [ "$ROLE" = "master" ]; then
   export MASTER_PORT
   export MASTER_HOSTNAME
 
+  echo
   echo "Execute on each worker:"
   echo "  ./$SCRIPT_NAME worker $MASTER_ADDR $MASTER_PORT $MASTER_HOSTNAME 1"
   echo
