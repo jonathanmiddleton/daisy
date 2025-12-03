@@ -41,7 +41,7 @@ grad_acc_steps: 2
 val_shards:
   - type: "dclm_baseline"
     path: "data/dclm_baseline/dclm_baseline_val_*.bin"
-    target_tokens: 10_485_760
+    target_tokens: 335_544_320
     sequence_length: 131_072
 val_loss_every_tokens:   65_536_000
 # Checkpoints
