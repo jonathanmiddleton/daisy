@@ -40,7 +40,7 @@ class Evaluator:
         distributed_enabled: bool,
         rank: int,
         attn_window_len: int,
-        val_type: str = "pretrain", # "pretrain" or "task"
+        val_type: str = "pretraining", # "pretraining" or "task"
         log_samples: bool = False,
         sample_log_path: Optional[str] = None,
         tokenizer_name: str = "gpt2",
