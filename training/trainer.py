@@ -622,7 +622,9 @@ class TrainingSession:
                 loss_to_backward.backward()
                 total_train_loss += float(loss.item())
 
+            if logger.isDebugEnabled(): logger.debug(f"step={step}  total_train_loss={total_train_loss}")
             if not skipped:
+                if logger.isDebugEnabled(): logger.debug(f"start opt2futures: dist.all_reduce()")
                 opt2futures = {
                     opt: (
                         [
@@ -645,6 +647,7 @@ class TrainingSession:
                         continue
                     for group in opt.param_groups:
                         group["lr"] = group["initial_lr"] * lr_scale
+                        if logger.isDebugEnabled(): logger.debug(f"set lr={group['lr']} for opt={opt}")
 
                 for opt in optimizers:
                     if isinstance(opt, Muon):
@@ -654,7 +657,9 @@ class TrainingSession:
 
                 for opt in optimizers:
                     if self.rt.use_distributed:
+                        if logger.isDebugEnabled(): logger.debug(f"wait for opt2futures[{opt}]")
                         torch.futures.collect_all(opt2futures[opt]).wait()
+                        if logger.isDebugEnabled(): logger.debug(f"done waiting for opt2futures[{opt}]")
                     opt.step()
                 self.rt.model.zero_grad(set_to_none=True)
 
