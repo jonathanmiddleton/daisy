@@ -77,23 +77,23 @@ class MasterLogger:
     def debug(cls, st):
         cls._initialize()
         if cls._is_master:
-            cls._logger.debug(st)
+            cls._logger.debug(st, stacklevel=2)
 
     @classmethod
     def info(cls, st):
         cls._initialize()
         if cls._is_master:
-            cls._logger.info(st)
+            cls._logger.info(st, stacklevel=2)
 
     @classmethod
     def warning(cls, st):
         cls._initialize()
         if cls._is_master:
-            cls._logger.warning(st)
+            cls._logger.warning(st, stacklevel=2)
 
     @classmethod
     def error(cls, st):
         cls._initialize()
         if cls._is_master:
-            cls._logger.error(st)
+            cls._logger.error(st, stacklevel=2)
 

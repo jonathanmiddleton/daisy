@@ -265,6 +265,7 @@ class DaisyCore(nn.Module):
         if self.training:
             logits: Tensor = F.linear(x.flatten(end_dim=1).bfloat16(), self.lm_head_w.bfloat16()).float()
             loss = F.cross_entropy(15 * logits * torch.rsqrt(logits.square() + 225), target_seq)
+            if self.DEBUG_LOG_ENABLED: logger.debug(f"loss: {loss.item():.4f}")
             return loss
 
         if output_logits:
@@ -279,7 +280,9 @@ class DaisyCore(nn.Module):
                                           self.lm_head_w.bfloat16()).float()
                 logits = 15 * logits * torch.rsqrt(logits.square() + 225)
                 chunk = target_seq.chunk(loss_chunks)[i]
+                loss: Tensor
                 loss += F.cross_entropy(logits, chunk) / loss_chunks
+            if self.DEBUG_LOG_ENABLED: logger.debug(f"loss: {loss.item():.4f}")
             return loss
 
     def step(self, token_id: Tensor, k_ctxs, v_ctxs, pos: int, window: int):
