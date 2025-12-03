@@ -665,17 +665,21 @@ class TrainingSession:
 
                 if args.train_mode != "task":
                     progress.update(tokens_per_step * ga_steps)
+                    if logger.isDebugEnabled(): logger.debug(f"update {tokens_per_step * ga_steps} -> progress.tokens_processed={progress.tokens_processed}")
                 else:
                     progress.update(tokens_this_step * self.rt.world_size)
+                    if logger.isDebugEnabled(): logger.debug(f"update {tokens_this_step * self.rt.world_size} -> progress.tokens_processed={progress.tokens_processed}")
 
                 step += 1
 
                 train_loss_est = total_train_loss / ga_steps
 
                 if self.rt.use_distributed:
+                    if logger.isDebugEnabled(): logger.debug(f"Starting dist.all_reduce() -> train_loss_est={train_loss_est}")
                     loss_tensor = torch.tensor(train_loss_est, device=self.rt.device)
                     torch.distributed.all_reduce(loss_tensor, op=torch.distributed.ReduceOp.AVG)
                     train_loss_est = loss_tensor.item()
+                    if logger.isDebugEnabled(): logger.debug(f"Finished dist.all_reduce() -> train_loss_est={train_loss_est}")
 
                 approx_training_time_ms = training_time_ms + 1000 * (time.perf_counter() - t0)
                 if step == 9:
