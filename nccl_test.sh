@@ -84,6 +84,7 @@ if [ "$ROLE" = "master" ]; then
   echo
   printf 'Executing (master):'
   printf ' %q' "${master_cmd[@]}"
+  echo
   echo "-----------------------------------------------------------"
   echo
   echo
@@ -145,6 +146,7 @@ elif [ "$ROLE" = "worker" ]; then
   echo "Starting torchrun on worker (node_rank=$NODE_RANK)..."
   printf 'Executing (worker):'
   printf ' %q' "${worker_cmd[@]}"
+  echo
   echo "-----------------------------------------------------------"
   echo
 
