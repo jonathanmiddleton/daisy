@@ -19,31 +19,57 @@ export TORCH_LOGS=recompiles,graph_breaks
 print_help() {
   cat <<'EOF'
 Usage:
-  ./run.sh [CONFIG ...] [FLAGS/OVERRIDES...]
+  ./run.sh [CONFIG ...] [OPTIONS] [OVERRIDES...]
 
-Where CONFIG can be:
-  - a YAML file path (e.g., config/pretrain/nano-dclm.yml)
-  - a quoted glob pattern matching YAML files (e.g., "config/**/*.yml")
+CONFIG:
+  - A YAML file path (e.g., config/pretrain/nano-dclm.yml)
+  - A quoted glob pattern matching YAML files (e.g., "config/**/*.yml")
 
-Flags forwarded to the Python runner (examples):
-  -n NPROC              Number of processes per node (torchrun when >1)
-  -p CHECKPOINT         Initial checkpoint path
+OPTIONS (forwarded to training.runner; it invokes torchrun when needed):
+  -n NPROC              Processes per node (macOS forces nproc=1)
+  --nnodes N            Number of nodes (omit or 1 for single-node)
+  --node-rank R         Node rank for multi-node (alias: --node_rank)
+  --master-addr HOST    Master address (alias: --master_addr, or env MASTER_ADDR)
+  --master-port PORT    Master port (alias: --master_port, or env MASTER_PORT)
+  -p CHECKPOINT         Initial checkpoint path (forwards as init_checkpoint=...)
   -s BEGIN_SHARD        BEGIN_SHARD environment value
   -r RUN_ID             Base RUN_ID for the run(s)
   --full_windows        Example boolean flag forwarded as --full_windows=true
-  --any-long-opt        Any additional long options are forwarded
+  --any-long-opt        Any additional long options are forwarded as overrides
 
-Overrides form a Cartesian product (handled by training.runner):
-  key=v1,v2  another_key=x,y  -> runs for all combinations
+OVERRIDES (Cartesian product; handled by training.runner):
+  key=val               Single override (e.g., lr=3e-4)
+  key=v1,v2,...         Grid values combine across keys (e.g., lr=1e-3,1e-4 wd=0,0.1)
 
-Examples:
+Examples (single process):
   ./run.sh config/pretrain/nano-dclm.yml lr=1e-3,1e-4 wd=0,0.1
-  ./run.sh config/pretrain/nano-dclm.yml config_old/pico-linear-fineweb-edu.yml -n 8 --full_windows lr=1e-3,1e-4
-  ./run.sh "config/**/*.yml" -n 8 head_params_lr=0.7,0.8
+  ./run.sh config/pretrain/nano-dclm.yml config/old/pico-linear-fineweb-edu.yml --full_windows lr=1e-3,1e-4
+  ./run.sh "config/**/*.yml" head_params_lr=0.7,0.8
+
+Distributed training:
+  Single node, 8 GPUs:
+    ./run.sh -n 8 config/pretrain/nano-dclm.yml lr=1e-3,1e-4
+
+  Multi-node (2 nodes, 8 GPUs each):
+    # on node 0
+    MASTER_ADDR=node0.example.com MASTER_PORT=29500 \
+    ./run.sh --nnodes 2 --node-rank 0 -n 8 config/pretrain/nano-dclm.yml run_name=myrun
+
+    # on node 1
+    MASTER_ADDR=node0.example.com MASTER_PORT=29500 \
+    ./run.sh --nnodes 2 --node-rank 1 -n 8 config/pretrain/nano-dclm.yml run_name=myrun
+
+  SLURM (example):
+    srun --nodes=2 --ntasks-per-node=8 bash -lc '
+      MASTER_ADDR=${SLURM_JOB_NODELIST%%,*}; MASTER_PORT=29500;
+      ./run.sh -n $SLURM_NTASKS_PER_NODE --nnodes $SLURM_JOB_NUM_NODES \
+               --node-rank $SLURM_NODEID config/pretrain/nano-dclm.yml
+    '
 
 Notes:
   - Multiple CONFIGs or glob patterns will be executed sequentially; failures are logged and the script continues to the next.
   - If no CONFIGs are detected but arguments are provided, run.sh delegates to training.runner unchanged.
+  - For distributed training, pass -n/--nnodes/--node-rank/--master-addr/--master-port to run.sh; it will invoke torchrun automatically.
   - Use -h or --help to show this message.
 EOF
 }
