@@ -34,7 +34,7 @@ optimizers:
     params:
       - group: hidden_matrix_params
         lr: 0.0125
-full_windows: false
+full_windows: true
 # Gradient accumulation
 grad_acc_steps: 2
 # Evaluations
