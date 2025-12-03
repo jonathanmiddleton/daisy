@@ -5,7 +5,7 @@ wandb_run_name: 'milli-dclm-sparse'
 wandb_group: 'milli-dclm'
 # Torch config
 torch.coordinate_descent_tuning: false
-init_checkpoint: "/Users/jonathanmiddleton/models/checkpoints/milli-dclm-base/20251202T2353-val2.750-step017214-tokens10223738880-run1-best.pt"
+init_checkpoint: ""
 # Pretraining configuration
 train_shards: "data/dclm_baseline/dclm_baseline_train_*.bin"
 target_tokens: 0
