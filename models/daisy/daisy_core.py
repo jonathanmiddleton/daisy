@@ -10,6 +10,8 @@ from torch.nn.attention.flex_attention import BlockMask
 
 from models.daisy.block import Block
 from models.daisy.functional import norm
+from tools.master_logger import MasterLogger
+logger = MasterLogger
 
 WINDOW_BLOCK_SIZE = 128
 
@@ -109,6 +111,8 @@ class DaisyCore(nn.Module):
         super().__init__()
         if eos_token_id is None:
             raise ValueError("eos_token_id is required.")
+
+        self.DEBUG_LOG_ENABLED = logger.isDebugEnabled()  # quasi-static compiler-friendly bool
 
         def _get_skip_map(L: int):
             """
@@ -234,6 +238,7 @@ class DaisyCore(nn.Module):
 
         skip_map = self.skip_map
         skip_weights = self.skip_weights
+        if self.DEBUG_LOG_ENABLED: logger.debug(f"L: {L}, sliding_window_num_blocks: {sliding_window_num_blocks}, skip_map: {skip_map}, skip_weights: {skip_weights}")
 
         skip_connections = []
 

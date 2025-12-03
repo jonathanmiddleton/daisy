@@ -69,6 +69,9 @@ class MasterLogger:
             cls._initialized = True
             cls._logger.setLevel(log_level_from_env())
 
+    @classmethod
+    def isDebugEnabled(cls) -> bool:
+        return cls._logger.isEnabledFor(logging.DEBUG)
 
     @classmethod
     def debug(cls, st):

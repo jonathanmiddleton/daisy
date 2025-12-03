@@ -133,7 +133,7 @@ class Evaluator:
         """
         if not self._log_samples:
             return
-
+        if logger.isDebugEnabled(): logger.debug(f"[eval] _log_sample(step_idx={step_idx})")
         loss_scalar = float(loss_tensor.detach().item())
         tokens_cpu = inputs.detach().to("cpu")
 
@@ -183,6 +183,8 @@ class Evaluator:
             - 'epoch': always None (no epoch tracking)
             - 'ema_dloss_per_token': exponential moving average of d(loss)/d(token)
         """
+        if logger.isDebugEnabled():
+            logger.debug(f"[eval] eval(total_tokens={total_tokens})")
         if total_tokens <= 0:
             raise ValueError("Evaluator.eval: total_tokens must be > 0")
 
@@ -205,12 +207,14 @@ class Evaluator:
 
         def run_step(x: torch.Tensor, y: torch.Tensor) -> None:
             nonlocal loss_acc, step_idx
-
+            if logger.isDebugEnabled():
+                logger.debug(f"[eval] run_step(x.shape={x.shape}, y.shape={y.shape})")
             with torch.no_grad():
                 with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
                     n_blocks = get_num_window_blocks(schedule=schedule,
                                                      attention_window_len=self._attn_window_len,
                                                      window_block_size=WINDOW_BLOCK_SIZE)
+                    if logger.isDebugEnabled(): logger.debug(f"[eval] n_blocks={n_blocks}")
                     loss = model(x, n_blocks, y) if self._val_type == 'pretraining' else model(x, n_blocks, y, loss_chunks=1)
 
             # Optional per-sample debug logging

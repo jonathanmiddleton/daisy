@@ -446,6 +446,7 @@ _force_full_windows: bool = False
 def set_full_windows(flag: bool):
     global _force_full_windows
     _force_full_windows = bool(flag)
+    if logger.isDebugEnabled(): logger.debug(f"set_full_windows({flag})")
 
 
 def next_multiple_of_n(v: float | int, *, n: int):

@@ -105,6 +105,8 @@ class CompiledRuntime:
         os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
         torch.manual_seed(1337)
 
+        self.DEBUG_LOG_ENABLED = logger.isDebugEnabled() # quasi-static compiler-friendly bool
+
         # World setup from torchrun
         self.rank = int(os.environ.get("RANK", "0"))
         self.world_size = int(os.environ.get("WORLD_SIZE", "1"))
@@ -117,7 +119,7 @@ class CompiledRuntime:
             self.device = torch.device("mps")
         else:
             self.device = torch.device("cpu")
-
+        if self.DEBUG_LOG_ENABLED: logger.debug(f"CompiledRuntime initialized on device={self.device}")
         if self.device.type == "cuda":
             torch.cuda.set_device(self.device)
             if self.use_distributed:
@@ -431,6 +433,7 @@ class TrainingSession:
     def _perform_eval(self, training_time_ms: float, step: int, t0: float, progress: ProgressMeter, ema_dloss_per_token: float, best_val: float, run_start_minute: str, _tokens_per_optim_step: int, val_evals: List[Tuple[str, Evaluator, int]]) -> Tuple[float, float, float, float, float]:
         logger.info("[eval] starting evaluations...")
         if self.rt.use_distributed:
+            if logger.isDebugEnabled(): logger.debug(f"_perform_eval: beginning dist.barrier()")
             dist.barrier()
         training_time_ms += 1000 * (time.perf_counter() - t0)
         self.rt.model.eval()
@@ -439,6 +442,7 @@ class TrainingSession:
         for label, ev, target_tokens in val_evals:
             logger.info(f"[eval] start dataset={label} target_tokens={target_tokens})")
             out = ev.eval(model=self.rt.model, total_tokens=target_tokens, schedule=progress.s)
+            if logger.isDebugEnabled(): logger.debug(f"[eval] finished dataset={label} out={out}")
             per_ds_results.append((label, out))
 
         primary_label, primary_out = per_ds_results[0]
@@ -491,11 +495,13 @@ class TrainingSession:
 
         self.rt.model.train()
         if self.rt.use_distributed:
+            if logger.isDebugEnabled(): logger.debug(f"_perform_eval: final dist.barrier()")
             dist.barrier()
         t0 = time.perf_counter()
         return training_time_ms, t0, ema_dloss_per_token, best_val, last_val_loss
 
     def run(self) -> None:
+        if logger.isDebugEnabled(): logger.debug(f"Trainer.run() starting...")
         # Reset model and per-run state
         self.rt.reset_model_to_initial()
         _maybe_reset_peak_memory_stats(self.rt.device.type)
@@ -585,23 +591,28 @@ class TrainingSession:
             tokens_this_step = 0
             skipped = False
             for micro_step in range(ga_steps):
+                if logger.isDebugEnabled(): logger.debug(f"micro_step={micro_step} in ga_steps={ga_steps}")
+
                 inputs, targets = next(train_ddg)
+                if logger.isDebugEnabled(): logger.debug(f"inputs.shape={inputs.shape}, targets.shape={targets.shape}")
 
                 if args.train_mode == "task":
                     seq_len = inputs.size(-1)
                     if seq_len > int(args.training_sequence_length):
-                        logger.debug(
+                        logger.info(
                             f"Skipping example: Task example length {seq_len} exceeds training_sequence_length {int(args.training_sequence_length)}"
                         )
                         skipped = True
                         continue
                     tokens_this_step += int(seq_len)
+                    if logger.isDebugEnabled(): logger.debug(f"tokens_this_step={tokens_this_step}")
 
                 n_blocks = get_num_window_blocks(
                     progress.s,
                     attention_window_len=args.train_attention_window_len,
                     window_block_size=WINDOW_BLOCK_SIZE,
                 ).to(self.rt.device.type)
+                if logger.isDebugEnabled(): logger.debug(f"n_blocks={n_blocks}")
                 with torch.autocast(self.rt.device.type, dtype=torch.bfloat16):
                     loss = self.rt.model(inputs, n_blocks, targets)
 
