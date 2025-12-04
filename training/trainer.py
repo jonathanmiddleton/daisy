@@ -108,9 +108,17 @@ class CompiledRuntime:
         self.DEBUG_LOG_ENABLED = logger.isDebugEnabled() # quasi-static compiler-friendly bool
 
         # World setup from torchrun
-        self.rank = int(os.environ.get("RANK", "0"))
-        self.world_size = int(os.environ.get("WORLD_SIZE", "1"))
-        self.local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+        try:
+            self.world_size = int(os.environ.get("WORLD_SIZE"))
+            self.rank = int(os.environ.get("RANK"))
+            self.local_rank = int(os.environ.get("LOCAL_RANK"))
+        except Exception as e:
+            # explicitly log as opposed to get(,default)
+            logger.info(f"Torchrun vars not set. Assuming standalone.")
+            self.world_size = 1
+            self.rank = 0
+            self.local_rank = 0
+
         self.use_distributed = self.world_size > 1
         logger.info(f"CompiledRuntime initialized on rank={self.rank} world_size={self.world_size} local_rank={self.local_rank} use_distributed={self.use_distributed}")
 
