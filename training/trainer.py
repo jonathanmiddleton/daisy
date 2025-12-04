@@ -119,6 +119,7 @@ class CompiledRuntime:
             self.device = torch.device("mps")
         else:
             self.device = torch.device("cpu")
+        logger.debug(f"CompiledRuntime initialized on device={self.device}")
         if self.DEBUG_LOG_ENABLED: logger.debug(f"CompiledRuntime initialized on device={self.device}")
         if self.device.type == "cuda":
             torch.cuda.set_device(self.device)
@@ -616,7 +617,7 @@ class TrainingSession:
                     attention_window_len=args.train_attention_window_len,
                     window_block_size=WINDOW_BLOCK_SIZE,
                 ).to(self.rt.device.type)
-                if logger.isDebugEnabled(): logger.debug(f"n_blocks={n_blocks}")
+                if logger.isDebugEnabled(): logger.debug(f"n_blocks={n_blocks} device={n_blocks.device}")
                 with torch.autocast(self.rt.device.type, dtype=torch.bfloat16):
                     loss = self.rt.model(inputs, n_blocks, targets)
 
