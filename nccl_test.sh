@@ -66,11 +66,11 @@ if [ "$ROLE" = "master" ]; then
 
   master_cmd=(
     torchrun
-    --nproc_per_node="$NPROC_PER_NODE"
     --nnodes="$NNODES"
-    --rdzv_backend=c10d
-    --rdzv_endpoint="$MASTER_ADDR:$MASTER_PORT"
+    --nproc_per_node="$NPROC_PER_NODE"
     --node_rank=0
+    --master_addr="$MASTER_ADDR"
+    --master_port="$MASTER_PORT"
     tools/simple_nccl_test.py
   )
 
@@ -139,11 +139,11 @@ elif [ "$ROLE" = "worker" ]; then
   echo
   worker_cmd=(
     torchrun
-    --nproc_per_node="$NPROC_PER_NODE"
     --nnodes="$NNODES"
-    --rdzv_backend=c10d
-    --rdzv_endpoint="$MASTER_ADDR:$MASTER_PORT"
+    --nproc_per_node="$NPROC_PER_NODE"
     --node_rank="$NODE_RANK"
+    --master_addr="$MASTER_ADDR"
+    --master_port="$MASTER_PORT"
     tools/simple_nccl_test.py
   )
 

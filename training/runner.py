@@ -112,18 +112,29 @@ def build_run_cmd(
     - nproc == 1 -> python train.py
     - nproc > 1 and (nnodes is None or nnodes == 1) -> torchrun --standalone --nproc_per_node=n train.py
 
-    Multi-node behavior (when nnodes and rendezvous info are provided):
-    - torchrun --nnodes=NN --nproc_per_node=n --rdzv_backend=c10d --rdzv_endpoint=addr:port [--node_rank=R] train.py
+    Multi-node behavior (when nnodes > 1):
+    - torchrun \
+      --nnodes=NN \
+      --nproc_per_node=n \
+      --node_rank=R \
+      --master_addr=ADDR \
+      --master_port=PORT \
+      train.py ...
     """
     # Prioritize multi-node first: even with nproc==1 we must use torchrun
     if nnodes is not None and nnodes > 1:
-        # Multi-node torchrun
-        base_cmd = ["torchrun", f"--nproc_per_node={nproc}", f"--nnodes={nnodes}"]
-        # rendezvous configuration
-        if master_addr and master_port:
-            base_cmd += ["--rdzv_backend=c10d", f"--rdzv_endpoint={master_addr}:{master_port}"]
+        # Multi-node torchrun in deterministic master/node rank form
+        base_cmd = [
+            "torchrun",
+            f"--nnodes={nnodes}",
+            f"--nproc_per_node={nproc}",
+        ]
         if node_rank is not None:
             base_cmd += [f"--node_rank={node_rank}"]
+        if master_addr is not None:
+            base_cmd += [f"--master_addr={master_addr}"]
+        if master_port is not None:
+            base_cmd += [f"--master_port={master_port}"]
     elif nproc > 1:
         # Explicit single-node torchrun
         base_cmd = ["torchrun", "--standalone", f"--nproc_per_node={nproc}"]

@@ -28,4 +28,14 @@ def main():
     dist.destroy_process_group()
 
 if __name__ == "__main__":
+    """
+    Example usage:
+        torchrun \
+        --nnodes=... \
+        --nproc_per_node=... \
+        --node_rank=... \
+        --master_addr=... \
+        --master_port=... \
+        tools/simple_nccl_test.py
+    """
     main()
