@@ -652,7 +652,7 @@ class TrainingSession:
                     continue
                 for group in opt.param_groups:
                     group["lr"] = group["initial_lr"] * lr_scale
-                    if logger.isDebugEnabled(): logger.debug(f"set lr={group['lr']} for opt={opt}")
+                    # if logger.isDebugEnabled(): logger.debug(f"set lr={group['lr']} for opt={opt}")
 
             for opt in optimizers:
                 if isinstance(opt, Muon):
