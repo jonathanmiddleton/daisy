@@ -112,6 +112,7 @@ class CompiledRuntime:
         self.world_size = int(os.environ.get("WORLD_SIZE", "1"))
         self.local_rank = int(os.environ.get("LOCAL_RANK", "0"))
         self.use_distributed = self.world_size > 1
+        logger.info(f"CompiledRuntime initialized on rank={self.rank} world_size={self.world_size} local_rank={self.local_rank} use_distributed={self.use_distributed}")
 
         if torch.cuda.is_available():
             self.device = torch.device("cuda", self.local_rank)
@@ -680,8 +681,9 @@ class TrainingSession:
                 if logger.isDebugEnabled(): logger.debug(f"update {global_token_step} -> progress.tokens_processed={progress.tokens_processed}")
             else:
                 # pretraining token counts are constant across each batch
-                progress.update(tokens_this_step * self.rt.world_size)
-                if logger.isDebugEnabled(): logger.debug(f"update {tokens_per_step * ga_steps} -> progress.tokens_processed={progress.tokens_processed}")
+                global_token_step = tokens_per_step * ga_steps
+                progress.update(global_token_step)
+                if logger.isDebugEnabled(): logger.debug(f"update {global_token_step} -> progress.tokens_processed={progress.tokens_processed}")
 
             step += 1
 
