@@ -501,7 +501,11 @@ class TrainingSession:
         return training_time_ms, t0, ema_dloss_per_token, best_val, last_val_loss
 
     def run(self) -> None:
-        if logger.isDebugEnabled(): logger.debug(f"Trainer.run() starting...")
+        if logger.isDebugEnabled():
+            import socket
+            hostname = socket.gethostname()
+            logger.debug(f"Trainer.run() starting: world_size={self.rt.world_size}, rank={self.rt.rank}, device={self.rt.device.type} hostname={hostname}")
+
         # Reset model and per-run state
         self.rt.reset_model_to_initial()
         _maybe_reset_peak_memory_stats(self.rt.device.type)
