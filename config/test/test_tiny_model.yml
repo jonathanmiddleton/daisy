@@ -2,7 +2,7 @@ wandb_log: false
 wandb_project: 'daisy'
 wandb_run_name: 'test-tiny'
 # Pretraining configuration
-train_shards: "data/fineweb/fineweb_train_*.bin"
+train_shards: "data/fineweb-edu/edu_fineweb_train_*.bin"
 target_tokens: 4096
 cooldown_frac: 0.7
 learning_rate_schedule: linear_decay
@@ -33,8 +33,8 @@ full_windows: false
 grad_acc_steps: 1
 # Evaluations
 val_shards:
-  - type: "fineweb"
-    path: "data/fineweb/fineweb_val_*.bin"
+  - type: "fineweb-edu"
+    path: "data/fineweb-edu/edu_fineweb_val_*.bin"
     target_tokens: 1024
     sequence_length: 1024
 val_loss_every_tokens: 20102448
