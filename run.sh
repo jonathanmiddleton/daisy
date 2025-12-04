@@ -52,11 +52,11 @@ Distributed training:
 
   Multi-node (2 nodes, 8 GPUs each):
     # on node 0
-    MASTER_ADDR=node0.example.com MASTER_PORT=29500 \
+    MASTER_ADDR=10.0.0.1 MASTER_PORT=29500 \
     ./run.sh --nnodes 2 --node-rank 0 -n 8 config/pretrain/nano-dclm.yml run_name=myrun
 
     # on node 1
-    MASTER_ADDR=node0.example.com MASTER_PORT=29500 \
+    MASTER_ADDR=10.0.0.1  MASTER_PORT=29500 \
     ./run.sh --nnodes 2 --node-rank 1 -n 8 config/pretrain/nano-dclm.yml run_name=myrun
 
   SLURM (example):
