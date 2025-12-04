@@ -52,8 +52,7 @@ class MasterLogger:
     @classmethod
     def _initialize(cls):
         if not cls._initialized:
-            cls._is_master = True # TODO debugging, remove
-            # cls._is_master = int(os.getenv("RANK", 0)) == 0
+            cls._is_master = int(os.getenv("RANK", 0)) == 0
             if cls._is_master:
                 try:
                     project_root = Path(__file__).resolve().parents[1]
