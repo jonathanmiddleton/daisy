@@ -677,11 +677,11 @@ class TrainingSession:
                     global_token_step = tokens_this_step
 
                 progress.update(global_token_step)
-                if logger.isDebugEnabled(): logger.debug(f"update {tokens_per_step * ga_steps} -> progress.tokens_processed={progress.tokens_processed}")
+                if logger.isDebugEnabled(): logger.debug(f"update {global_token_step} -> progress.tokens_processed={progress.tokens_processed}")
             else:
                 # pretraining token counts are constant across each batch
                 progress.update(tokens_this_step * self.rt.world_size)
-                if logger.isDebugEnabled(): logger.debug(f"update {tokens_this_step * self.rt.world_size} -> progress.tokens_processed={progress.tokens_processed}")
+                if logger.isDebugEnabled(): logger.debug(f"update {tokens_per_step * ga_steps} -> progress.tokens_processed={progress.tokens_processed}")
 
             step += 1
 
