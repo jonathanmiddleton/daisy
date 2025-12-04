@@ -50,6 +50,7 @@ def _build_ve_layer_map(L: int, ve_layers: List[int], _in: int, _out: int) -> Di
     return ve_map
 
 def build_attn_mask(input_seq: Tensor, window_size: int, eos_token_id: int):
+    input_seq = input_seq.squeeze(0)
     T = input_seq.size(-1)
     q = torch.arange(T, device=input_seq.device)[:, None]  # (T, 1)
     k = torch.arange(T, device=input_seq.device)[None, :]  # (1, T)
@@ -142,6 +143,7 @@ class DaisyCore(nn.Module):
         self.attn_layers = [i for i in range(num_layers)] if attn_all_layers else _pick_attention_layers(num_layers, attn_impl=attn_impl)
         self.attn_num_heads = num_heads
         self.attn_head_dim = head_dim
+        self.attn_window_size = window_size
         self.use_value_embeddings = use_value_embeddings
 
         self.ve_layers = []
@@ -287,7 +289,7 @@ class DaisyCore(nn.Module):
             if self.DEBUG_LOG_ENABLED: logger.debug(f"loss: {loss.item():.4f}")
             return loss
 
-    def step(self, token_id: Tensor, k_ctxs, v_ctxs, pos: int, window: int):
+    def step(self, token_id: Tensor, k_ctxs, v_ctxs, pos: int):
         assert token_id.ndim == 0
         B = T = 1
         token_id = token_id.view(B, T)
@@ -309,9 +311,9 @@ class DaisyCore(nn.Module):
                 gate = torch.sigmoid(skip_weights[skip_map[i]])
                 x = x*gate + (1-gate)*skip_connections[skip_map[i]]
             if i in ve_map:
-                y, k_new, v_new = self.blocks[i].step(x, ve_map[i], x0, k_ctxs[i], v_ctxs[i], pos, window)
+                y, k_new, v_new = self.blocks[i].step(x, ve_map[i], x0, k_ctxs[i], v_ctxs[i], pos, self.attn_window_size)
             else:
-                y, k_new, v_new = self.blocks[i].step(x, None, x0, k_ctxs[i], v_ctxs[i], pos, window)
+                y, k_new, v_new = self.blocks[i].step(x, None, x0, k_ctxs[i], v_ctxs[i], pos, self.attn_window_size)
             x = y
             skip_connections.append(x)
             k_new_list.append(k_new)
