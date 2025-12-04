@@ -335,8 +335,6 @@ class DaisyCore(nn.Module):
         x = norm(self.embed(input_seq))
         x0 = x
 
-        ve = self.compute_value_embeddings(input_seq)
-
         skip_map = self.skip_map
         skip_weights = self.skip_weights
 
@@ -358,7 +356,6 @@ class DaisyCore(nn.Module):
         x = norm(x)
         logits = torch.nn.functional.linear(x[:, -1].bfloat16(), self.lm_head_w.bfloat16()).float()
 
-        attn = next(b.attn for b in self.blocks if b.attn is not None)
         H, D = self.attn_num_heads, self.attn_head_dim
         device = x.device
         dtype = x.dtype

@@ -159,7 +159,7 @@ class CausalSelfAttention(nn.Module):
 
     def prefill(self, x: torch.Tensor, ve: torch.Tensor | None,  attn_mask: Tensor = None, debug: bool = False):
         #attn_mask: for future document-causal masking
-        y, k, v, q = self._sdpa_common(x, ve)
+        y, k, v, q = self._sdpa_common(x, ve, attn_mask=attn_mask)
 
         if debug:
             self.last_q = q

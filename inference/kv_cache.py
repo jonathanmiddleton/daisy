@@ -54,9 +54,9 @@ class KVCache:
         self.t += 1
         self._staged = [False] * self.L
 
-    def bulk_write_packed(self, kv, pos, window=None):
+    def bulk_write_packed(self, kv, pos):
         k, v = kv[0], kv[1]
-        r = pos if window is None else min(pos, max(window - 1, 0))
+        r = min(pos, max(self.W - 1, 0))
         if r == 0:
             self.t = pos
             self._staged = [False] * self.L

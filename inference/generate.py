@@ -80,7 +80,6 @@ class Generator:
         self.rep_p_t = torch.tensor(repetition_penalty, device=self.device, dtype=dtype)
         self.eos_token_id = torch.tensor(eos_token_id, device=self.device)
         self.max_seq_len = max_seq_len
-        self.window = window
         self.vocab_size = self.model.embed.num_embeddings
         self._one = torch.tensor(1, device=self.device, dtype=dtype) # cached value for passing to compiled function
         # set seed across all devices
@@ -148,7 +147,8 @@ class Generator:
         min_sdpa = 9 # magic
         max_for_fast_sdpa = 1023 # inferred from torch 2.9.0 MPS SDPA kernel fast path
         two_zero_four_eight = 2048
-        max_seq_len_sdpa = self.window-1
+        # building an attention mask for T>sqrt(2,147,483,647)==sqrt(INT_MAX)==46340 will fail
+        max_seq_len_sdpa = 46_340
         bounds: list[tuple[Callable[[int], bool], tuple[str, tuple[int,int]]]] = [
             # (Predicate, (Function name, (min,max))
             (lambda n: n <= min_sdpa, ('_model_prefill_not_compiled', (1, min_sdpa)),),
@@ -220,11 +220,11 @@ class Generator:
     def _prefill(self, prompt_ids: torch.Tensor):
         prompt_ids = prompt_ids[None,:]
         fn = self._prefill_fn_for_input(prompt_ids)
-        logits, kv = fn(prompt_ids, window=self.window)
+        logits, kv = fn(prompt_ids)
         logits, kv = logits.to(self.dtype), kv.to(self.dtype)
         logits = logits[..., :self.vocab_size]
         prompt_ids = prompt_ids.squeeze(0)
-        self.cache.bulk_write_packed(kv, len(prompt_ids), window=self.window)
+        self.cache.bulk_write_packed(kv, len(prompt_ids))
         self.history = torch.cat([self.history, prompt_ids.to(dtype=torch.long, device=self.device)], dim=0)
         return logits
 
@@ -234,7 +234,7 @@ class Generator:
             kc, vc = self.cache.view(i)
             assert(kc.dtype == self.dtype); assert(vc.dtype == self.dtype)
             k_ctxs.append(kc); v_ctxs.append(vc)
-        logits, k_new, v_new = self.model.step(token, k_ctxs, v_ctxs, self.cache.t, self.window)
+        logits, k_new, v_new = self.model.step(token, k_ctxs, v_ctxs, self.cache.t)
         logits = logits.to(self.dtype)
         # some layers may not have attention but we can assume the first layer does
         k_new = [x.to(self.dtype) if x is not None else torch.zeros_like(k_new[0]) for x in k_new]
@@ -251,7 +251,6 @@ class Generator:
     def generate(self, prompt_ids: torch.Tensor, max_new_tokens) -> Generator[torch.Tensor, None, tuple[torch.Tensor, float, float]]:
         assert prompt_ids.ndim == 1
         assert prompt_ids.size(0) > 0 # must have at least one token
-        assert prompt_ids.size(0) <= self.window, f"prompt length {prompt_ids.size(0)} must be <= attention window {self.window}"
         assert prompt_ids.size(0)
         assert max_new_tokens > 0
         self.reset_history()
