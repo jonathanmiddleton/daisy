@@ -60,7 +60,10 @@ decode = lambda l: enc.decode(l)
 
 use_instruct = not cli.base
 
-prompt = "Albert Einstein (14 March 1879 – 18 April 1955) was a German-born" if not use_instruct and cli.prompt is None else cli.prompt
+if cli.prompt is None:
+    prompt = "Who was Albert Einstein?" if use_instruct else "Albert Einstein (14 March 1879 – 18 April 1955) was a German-born"
+else:
+    prompt = cli.prompt
 
 effective_temperature = cli.temperature if use_instruct else 0.0
 

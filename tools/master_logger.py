@@ -1,4 +1,6 @@
 import logging.config
+from pathlib import Path
+
 import yaml, os, sys
 
 def log_level_from_env():
@@ -53,7 +55,10 @@ class MasterLogger:
             cls._is_master = int(os.getenv("RANK", 0)) == 0
             if cls._is_master:
                 try:
-                    with open("config/logging.yml", "r") as f:
+                    project_root = Path(__file__).resolve().parents[1]
+                    logging_config_path = project_root / "config" / "logging.yml"
+
+                    with logging_config_path.open('r') as f:
                         config = yaml.safe_load(f.read())
                     config = _prepare_logging_paths(config)
                     logging.config.dictConfig(config)
@@ -75,25 +80,22 @@ class MasterLogger:
 
     @classmethod
     def debug(cls, st):
-        cls._initialize()
         if cls._is_master:
             cls._logger.debug(st, stacklevel=2)
 
     @classmethod
     def info(cls, st):
-        cls._initialize()
         if cls._is_master:
             cls._logger.info(st, stacklevel=2)
 
     @classmethod
     def warning(cls, st):
-        cls._initialize()
         if cls._is_master:
             cls._logger.warning(st, stacklevel=2)
 
     @classmethod
     def error(cls, st):
-        cls._initialize()
         if cls._is_master:
             cls._logger.error(st, stacklevel=2)
 
+MasterLogger._initialize()
