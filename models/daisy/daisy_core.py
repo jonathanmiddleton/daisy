@@ -140,6 +140,8 @@ class DaisyCore(nn.Module):
         self.eos_token_id = int(eos_token_id)
         self.embed = nn.Embedding(vocab_size, model_dim)
         self.attn_layers = [i for i in range(num_layers)] if attn_all_layers else _pick_attention_layers(num_layers, attn_impl=attn_impl)
+        self.attn_num_heads = num_heads
+        self.attn_head_dim = head_dim
         self.use_value_embeddings = use_value_embeddings
 
         self.ve_layers = []
@@ -318,8 +320,7 @@ class DaisyCore(nn.Module):
         logits = F.linear(x.flatten(end_dim=1).bfloat16(), self.lm_head_w.bfloat16()).float()
         return logits, k_new_list, v_new_list
 
-# TODO restore windowing
-    def prefill(self, input_seq: Tensor, window: Optional[int] = None, debug: bool = False): #TODO   merge prefill/forward
+    def prefill(self, input_seq: Tensor, debug: bool = False): #TODO   merge prefill/forward
         assert input_seq.ndim == 2
         B, T = input_seq.shape
         h = None
@@ -341,14 +342,15 @@ class DaisyCore(nn.Module):
 
         k_list, v_list, skip_connections = [], [], []
         ve_map: Dict[int, Tensor] = self.compute_value_embeddings(input_seq)
+        attn_mask = build_attn_mask(input_seq, self.window_size, self.eos_token_id)
         for i in range(L):
             if i in skip_map:
                 gate = torch.sigmoid(skip_weights[skip_map[i]])
                 x = x * gate + (1 - gate) * skip_connections[skip_map[i]]
             if i in ve_map:
-                x, k, v = self.blocks[i].prefill(x, ve_map[i], x0, debug=debug)
+                x, k, v = self.blocks[i].prefill(x, ve_map[i], x0, attn_mask=attn_mask, debug=debug)
             else:
-                x, k, v  = self.blocks[i].prefill(x, None, x0, debug=debug)
+                x, k, v  = self.blocks[i].prefill(x, None, x0, attn_mask=attn_mask, debug=debug)
             skip_connections.append(x)
             k_list.append(k)
             v_list.append(v)
@@ -357,7 +359,7 @@ class DaisyCore(nn.Module):
         logits = torch.nn.functional.linear(x[:, -1].bfloat16(), self.lm_head_w.bfloat16()).float()
 
         attn = next(b.attn for b in self.blocks if b.attn is not None)
-        H, D = attn.num_heads, attn.head_dim
+        H, D = self.attn_num_heads, self.attn_head_dim
         device = x.device
         dtype = x.dtype
 
