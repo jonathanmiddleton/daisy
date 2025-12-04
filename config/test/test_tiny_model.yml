@@ -35,7 +35,7 @@ grad_acc_steps: 1
 val_shards:
   - type: "fineweb-edu"
     path: "data/fineweb-edu/edu_fineweb_val_*.bin"
-    target_tokens: 1024
+    target_tokens: 8192
     sequence_length: 1024
 val_loss_every_tokens: 20102448
 # Snapshots
