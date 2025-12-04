@@ -102,7 +102,6 @@ def save_checkpoint(
         hparams: Dict[str, Any],
         step: Optional[int] = None,
         best_val: Optional[float] = None,
-        tokens_per_step: Optional[int] = None,
         progress_state: Optional[Dict[str, Any]] = None,
 ) -> None:
     # Accept either a module or a state_dict for model
@@ -120,7 +119,6 @@ def save_checkpoint(
         model=model_sd,
         best_val=best_val,
         hparams=hparams,
-        tokens_per_step=tokens_per_step,
         progress_state=progress_state,
     )
     torch.save(payload, path)

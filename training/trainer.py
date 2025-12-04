@@ -251,7 +251,7 @@ class TrainingSession:
             + ".pt"
         )
 
-    def _save_checkpoint(self, *, val_value: Optional[float], step: int, run_start_minute: str, model: nn.Module, best_val: float, tokens_per_step: int, tokens: int, progress: ProgressMeter, overwrite: bool = False, suffix: Optional[str] = None) -> str:
+    def _save_checkpoint(self, *, val_value: Optional[float], step: int, run_start_minute: str, model: nn.Module, best_val: float, tokens: int, progress: ProgressMeter, overwrite: bool = False, suffix: Optional[str] = None) -> str:
         fname = self._ckpt_filename(val_value=val_value, step=step, tokens=tokens, run_start_minute=run_start_minute, run_id=self.run_id, suffix=suffix)
         if overwrite and self._last_run_ckpt_path and os.path.exists(self._last_run_ckpt_path) and self._last_run_ckpt_path != fname:
             try:
@@ -265,7 +265,6 @@ class TrainingSession:
             hparams=asdict(self.args),
             step=step,
             best_val=best_val,
-            tokens_per_step=tokens_per_step,
             progress_state=progress.state_dict(),
         )
         self._last_run_ckpt_path = fname
@@ -432,7 +431,7 @@ class TrainingSession:
 
         return train_ddg, val_evals, tokens_per_step
 
-    def _perform_eval(self, training_time_ms: float, step: int, t0: float, progress: ProgressMeter, ema_dloss_per_token: float, best_val: float, run_start_minute: str, _tokens_per_optim_step: int, val_evals: List[Tuple[str, Evaluator, int]]) -> Tuple[float, float, float, float, float]:
+    def _perform_eval(self, training_time_ms: float, step: int, t0: float, progress: ProgressMeter, ema_dloss_per_token: float, best_val: float, run_start_minute: str,  val_evals: List[Tuple[str, Evaluator, int]]) -> Tuple[float, float, float, float, float]:
         logger.info("[eval] starting evaluations...")
         if self.rt.use_distributed:
             if logger.isDebugEnabled(): logger.debug(f"_perform_eval: beginning dist.barrier()")
@@ -483,7 +482,6 @@ class TrainingSession:
                     run_start_minute=run_start_minute,
                     model=self.rt.model,
                     best_val=best_val,
-                    tokens_per_step=_tokens_per_optim_step,
                     tokens=progress.tokens_processed,
                     progress=progress,
                     overwrite=False,
@@ -543,13 +541,6 @@ class TrainingSession:
 
         # Build data and evals
         train_ddg, val_evals, tokens_per_step = self._build_data_and_evals()
-
-        ga_steps_cfg = max(1, int(args.grad_acc_steps))
-        if tokens_per_step is not None:
-            tokens_per_optim_step = tokens_per_step * ga_steps_cfg
-        else:
-            tokens_per_optim_step = int(args.training_sequence_length) * ga_steps_cfg
-
         eval_every_tokens = None
         vlet = int(args.val_loss_every_tokens)
         if val_evals and vlet > 0:
@@ -583,7 +574,7 @@ class TrainingSession:
             # Eval
             if progress.should_eval():
                 training_time_ms, t0, ema_dloss_per_token, best_val, last_val_loss = self._perform_eval(
-                    training_time_ms, step, t0, progress, ema_dloss_per_token, best_val, run_start_minute, tokens_per_optim_step, val_evals
+                    training_time_ms, step, t0, progress, ema_dloss_per_token, best_val, run_start_minute, val_evals
                 )
                 progress.mark_eval_done()
 
@@ -597,8 +588,8 @@ class TrainingSession:
                 inputs, targets = next(train_ddg)
                 if logger.isDebugEnabled(): logger.debug(f"inputs.shape={inputs.shape}, targets.shape={targets.shape}")
 
+                seq_len = inputs.size(-1)
                 if args.train_mode == "task":
-                    seq_len = inputs.size(-1)
                     skip_count = 0
                     while seq_len > int(args.training_sequence_length):
                         # attempt to recover by getting a new batch
@@ -610,8 +601,10 @@ class TrainingSession:
                         if logger.isDebugEnabled(): logger.debug(f"seq_len={seq_len} > int(args.training_sequence_length)={int(args.training_sequence_length)}")
                         inputs, targets = next(train_ddg)
                         seq_len = inputs.size(-1)
-                    tokens_this_step += int(seq_len)
-                    if logger.isDebugEnabled(): logger.debug(f"tokens_this_step={tokens_this_step}")
+
+                tokens_this_step += int(seq_len) # TODO consider returning count from data generator to avoid sync
+                assert tokens_this_step != 0
+                if logger.isDebugEnabled(): logger.debug(f"step={step} cumulative tokens_microstep={tokens_this_step}")
 
                 n_blocks = get_num_window_blocks(
                     progress.s,
@@ -626,10 +619,10 @@ class TrainingSession:
                 if self.rt.use_distributed:
                     self.rt.model.require_backward_grad_sync = micro_step == ga_steps - 1
                 loss_to_backward.backward()
-                total_train_loss += float(loss.item())
+                total_train_loss += float(loss.item()) # TODO reduce syncs by reporting only every N steps
 
-            if logger.isDebugEnabled(): logger.debug(f"step={step}  total_train_loss={total_train_loss}")
-            if logger.isDebugEnabled(): logger.debug(f"start opt2futures: dist.all_reduce()")
+            if logger.isDebugEnabled(): logger.debug(f"step={step} tokens_this_step={tokens_this_step} total_train_loss={total_train_loss}")
+            if logger.isDebugEnabled() and self.rt.use_distributed: logger.debug(f"start opt2futures: dist.all_reduce()")
             opt2futures = {
                 opt: (
                     [
@@ -642,6 +635,7 @@ class TrainingSession:
                 )
                 for opt, params in opt2params.items()
             }
+            if logger.isDebugEnabled() and self.rt.use_distributed: logger.debug(f"len(opt2futures)={len([g for g in opt2futures.values() if g is not None])}")
 
             s = progress.s
             lr_scale_base = get_lr_scale(args.learning_rate_schedule, s, args.cooldown_frac)
@@ -662,28 +656,26 @@ class TrainingSession:
 
             for opt in optimizers:
                 if self.rt.use_distributed:
-                    if logger.isDebugEnabled(): logger.debug(f"wait for opt2futures[{opt}]")
+                    if logger.isDebugEnabled(): logger.debug(f"wait for opt2futures...")
                     torch.futures.collect_all(opt2futures[opt]).wait()
-                    if logger.isDebugEnabled(): logger.debug(f"done waiting for opt2futures[{opt}]")
+                    if logger.isDebugEnabled(): logger.debug(f"done waiting for opt2futures")
                 opt.step()
             self.rt.model.zero_grad(set_to_none=True)
 
-            if args.train_mode != "task":
+            if args.train_mode == "task":
                 # task token counts vary across each batch
                 if self.rt.use_distributed:
                     t = torch.tensor(tokens_this_step, device=self.rt.device, dtype=torch.int32)
                     dist.all_reduce(t, op=dist.ReduceOp.SUM)
-                    global_token_step = int(t.item())
+                    global_step_tokens = int(t.item())
                 else:
-                    global_token_step = tokens_this_step
-
-                progress.update(global_token_step)
-                if logger.isDebugEnabled(): logger.debug(f"update {global_token_step} -> progress.tokens_processed={progress.tokens_processed}")
+                    global_step_tokens = tokens_this_step
             else:
-                # pretraining token counts are constant across each batch
-                global_token_step = tokens_per_step * ga_steps
-                progress.update(global_token_step)
-                if logger.isDebugEnabled(): logger.debug(f"update {global_token_step} -> progress.tokens_processed={progress.tokens_processed}")
+                # pretraining token counts are constant across each batch so we can infer global_step_tokens
+                global_step_tokens = tokens_this_step * self.rt.world_size
+
+            progress.update(global_step_tokens)
+            if logger.isDebugEnabled(): logger.debug(f"update {global_step_tokens} -> progress.tokens_processed={progress.tokens_processed}")
 
             step += 1
 
@@ -725,7 +717,7 @@ class TrainingSession:
 
         # End of training
         training_time_ms, t0, ema_dloss_per_token, best_val, last_val_loss = self._perform_eval(
-            training_time_ms, step, t0, progress, ema_dloss_per_token, best_val, run_start_minute, tokens_per_optim_step, val_evals
+            training_time_ms, step, t0, progress, ema_dloss_per_token, best_val, run_start_minute, val_evals
         )
         if self.rt.is_master and self.args.save_checkpoint:
             _ = self._save_checkpoint(
@@ -734,7 +726,6 @@ class TrainingSession:
                 run_start_minute=run_start_minute,
                 model=self.rt.model,
                 best_val=best_val,
-                tokens_per_step=tokens_per_optim_step,
                 tokens=progress.tokens_processed,
                 progress=progress,
                 overwrite=False,
