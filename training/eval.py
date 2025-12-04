@@ -213,7 +213,7 @@ class Evaluator:
                 with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
                     n_blocks = get_num_window_blocks(schedule=schedule,
                                                      attention_window_len=self._attn_window_len,
-                                                     window_block_size=WINDOW_BLOCK_SIZE)
+                                                     window_block_size=WINDOW_BLOCK_SIZE).to(device)
                     if logger.isDebugEnabled(): logger.debug(f"[eval] n_blocks={n_blocks}")
                     loss = model(x, n_blocks, y) if self._val_type == 'pretraining' else model(x, n_blocks, y, loss_chunks=1)
 
