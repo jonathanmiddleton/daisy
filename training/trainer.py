@@ -589,7 +589,6 @@ class TrainingSession:
             ga_steps = max(1, int(args.grad_acc_steps))
             total_train_loss = 0.0
             tokens_this_step = 0
-            skipped = False
             for micro_step in range(ga_steps):
                 if logger.isDebugEnabled(): logger.debug(f"micro_step={micro_step} in ga_steps={ga_steps}")
 
@@ -598,12 +597,17 @@ class TrainingSession:
 
                 if args.train_mode == "task":
                     seq_len = inputs.size(-1)
-                    if seq_len > int(args.training_sequence_length):
-                        logger.info(
-                            f"Skipping example: Task example length {seq_len} exceeds training_sequence_length {int(args.training_sequence_length)}"
-                        )
-                        skipped = True
-                        continue
+                    skip_count = 0
+                    while seq_len > int(args.training_sequence_length):
+                        # attempt to recover by getting a new batch
+                        skip_count += 1
+                        if skip_count > 100:
+                            # significantly outside expectations - either the data must be cleansed or the model configuration is improper
+                            logger.error(f"Fatal: failed to find inputs with seq_len <= {int(args.training_sequence_length)} after 100 attempts.")
+                            sys.exit(1)
+                        if logger.isDebugEnabled(): logger.debug(f"seq_len={seq_len} > int(args.training_sequence_length)={int(args.training_sequence_length)}")
+                        inputs, targets = next(train_ddg)
+                        seq_len = inputs.size(-1)
                     tokens_this_step += int(seq_len)
                     if logger.isDebugEnabled(): logger.debug(f"tokens_this_step={tokens_this_step}")
 
@@ -623,90 +627,98 @@ class TrainingSession:
                 total_train_loss += float(loss.item())
 
             if logger.isDebugEnabled(): logger.debug(f"step={step}  total_train_loss={total_train_loss}")
-            if not skipped:
-                if logger.isDebugEnabled(): logger.debug(f"start opt2futures: dist.all_reduce()")
-                opt2futures = {
-                    opt: (
-                        [
-                            dist.all_reduce(p.grad, op=dist.ReduceOp.AVG, async_op=True).get_future()
-                            for p in params
-                            if p.grad is not None
-                        ]
-                        if self.rt.use_distributed
-                        else []
-                    )
-                    for opt, params in opt2params.items()
-                }
+            if logger.isDebugEnabled(): logger.debug(f"start opt2futures: dist.all_reduce()")
+            opt2futures = {
+                opt: (
+                    [
+                        dist.all_reduce(p.grad, op=dist.ReduceOp.AVG, async_op=True).get_future()
+                        for p in params
+                        if p.grad is not None
+                    ]
+                    if self.rt.use_distributed
+                    else []
+                )
+                for opt, params in opt2params.items()
+            }
 
-                s = progress.s
-                lr_scale_base = get_lr_scale(args.learning_rate_schedule, s, args.cooldown_frac)
-                lr_scale = max(lr_scale_base, float(getattr(args, "learning_rate_floor", 0.0)))
+            s = progress.s
+            lr_scale_base = get_lr_scale(args.learning_rate_schedule, s, args.cooldown_frac)
+            lr_scale = max(lr_scale_base, float(getattr(args, "learning_rate_floor", 0.0)))
 
-                for opt in optimizers:
-                    if isinstance(opt, Muon):
-                        continue
+            for opt in optimizers:
+                if isinstance(opt, Muon):
+                    continue
+                for group in opt.param_groups:
+                    group["lr"] = group["initial_lr"] * lr_scale
+                    if logger.isDebugEnabled(): logger.debug(f"set lr={group['lr']} for opt={opt}")
+
+            for opt in optimizers:
+                if isinstance(opt, Muon):
                     for group in opt.param_groups:
-                        group["lr"] = group["initial_lr"] * lr_scale
-                        if logger.isDebugEnabled(): logger.debug(f"set lr={group['lr']} for opt={opt}")
+                        frac = s
+                        group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
 
-                for opt in optimizers:
-                    if isinstance(opt, Muon):
-                        for group in opt.param_groups:
-                            frac = s
-                            group["momentum"] = (1 - frac) * 0.85 + frac * 0.95
-
-                for opt in optimizers:
-                    if self.rt.use_distributed:
-                        if logger.isDebugEnabled(): logger.debug(f"wait for opt2futures[{opt}]")
-                        torch.futures.collect_all(opt2futures[opt]).wait()
-                        if logger.isDebugEnabled(): logger.debug(f"done waiting for opt2futures[{opt}]")
-                    opt.step()
-                self.rt.model.zero_grad(set_to_none=True)
-
-                if args.train_mode != "task":
-                    progress.update(tokens_per_step * ga_steps)
-                    if logger.isDebugEnabled(): logger.debug(f"update {tokens_per_step * ga_steps} -> progress.tokens_processed={progress.tokens_processed}")
-                else:
-                    progress.update(tokens_this_step * self.rt.world_size)
-                    if logger.isDebugEnabled(): logger.debug(f"update {tokens_this_step * self.rt.world_size} -> progress.tokens_processed={progress.tokens_processed}")
-
-                step += 1
-
-                train_loss_est = total_train_loss / ga_steps
-
+            for opt in optimizers:
                 if self.rt.use_distributed:
-                    if logger.isDebugEnabled(): logger.debug(f"Starting dist.all_reduce() -> train_loss_est={train_loss_est}")
-                    loss_tensor = torch.tensor(train_loss_est, device=self.rt.device)
-                    torch.distributed.all_reduce(loss_tensor, op=torch.distributed.ReduceOp.AVG)
-                    train_loss_est = loss_tensor.item()
-                    if logger.isDebugEnabled(): logger.debug(f"Finished dist.all_reduce() -> train_loss_est={train_loss_est}")
+                    if logger.isDebugEnabled(): logger.debug(f"wait for opt2futures[{opt}]")
+                    torch.futures.collect_all(opt2futures[opt]).wait()
+                    if logger.isDebugEnabled(): logger.debug(f"done waiting for opt2futures[{opt}]")
+                opt.step()
+            self.rt.model.zero_grad(set_to_none=True)
 
-                approx_training_time_ms = training_time_ms + 1000 * (time.perf_counter() - t0)
-                if step == 9:
-                    warmup_end = approx_training_time_ms
-                avg_step = (
-                    f"avg_step:{(approx_training_time_ms - warmup_end) / max(step - 9, 1):.2f}ms"
-                    if step >= 10
-                    else "avg_step: (warmup to step 10)"
-                )
-                logger.info(
-                    f"step:{step} train_loss:{train_loss_est:.4f} tokens:{progress.tokens_processed:,}/{progress.target_tokens:,} "
-                    f"(s={progress.s:.4f}) train_time:{approx_training_time_ms:,.0f}ms {avg_step} "
-                    f"lr_scale:{lr_scale:.4f} (base:{lr_scale_base:.4f} floor:{float(getattr(args, 'learning_rate_floor', 0.0)):.4f})"
-                )
-                self._log_wandb(
-                    {
-                        "train/loss": train_loss_est,
-                        "train/ppl": math.exp(train_loss_est) if train_loss_est < 20 else float("inf"),
-                        "tokens": progress.tokens_processed,
-                        "s": progress.s,
-                        "lr_scale": lr_scale,
-                        "lr_scale_base": lr_scale_base,
-                        "learning_rate_floor": float(getattr(args, "learning_rate_floor", 0.0)),
-                        "train/time_ms": approx_training_time_ms,
-                        "avg_step_ms": avg_step,
-                    }
-                )
+            if args.train_mode != "task":
+                # task token counts vary across each batch
+                if self.rt.use_distributed:
+                    t = torch.tensor(tokens_this_step, device=self.rt.device, dtype=torch.int32)
+                    dist.all_reduce(t, op=dist.ReduceOp.SUM)
+                    global_token_step = int(t.item())
+                else:
+                    global_token_step = tokens_this_step
+
+                progress.update(global_token_step)
+                if logger.isDebugEnabled(): logger.debug(f"update {tokens_per_step * ga_steps} -> progress.tokens_processed={progress.tokens_processed}")
+            else:
+                # pretraining token counts are constant across each batch
+                progress.update(tokens_this_step * self.rt.world_size)
+                if logger.isDebugEnabled(): logger.debug(f"update {tokens_this_step * self.rt.world_size} -> progress.tokens_processed={progress.tokens_processed}")
+
+            step += 1
+
+            train_loss_est = total_train_loss / ga_steps
+
+            if self.rt.use_distributed:
+                if logger.isDebugEnabled(): logger.debug(f"Starting dist.all_reduce() -> train_loss_est={train_loss_est}")
+                loss_tensor = torch.tensor(train_loss_est, device=self.rt.device)
+                dist.all_reduce(loss_tensor, op=dist.ReduceOp.AVG)
+                train_loss_est = loss_tensor.item()
+                if logger.isDebugEnabled(): logger.debug(f"Finished dist.all_reduce() -> train_loss_est={train_loss_est}")
+
+            approx_training_time_ms = training_time_ms + 1000 * (time.perf_counter() - t0)
+            if step == 9:
+                warmup_end = approx_training_time_ms
+            avg_step = (
+                f"avg_step:{(approx_training_time_ms - warmup_end) / max(step - 9, 1):.2f}ms"
+                if step >= 10
+                else "avg_step: (warmup to step 10)"
+            )
+            logger.info(
+                f"step:{step} train_loss:{train_loss_est:.4f} tokens:{progress.tokens_processed:,}/{progress.target_tokens:,} "
+                f"(s={progress.s:.4f}) train_time:{approx_training_time_ms:,.0f}ms {avg_step} "
+                f"lr_scale:{lr_scale:.4f} (base:{lr_scale_base:.4f} floor:{float(getattr(args, 'learning_rate_floor', 0.0)):.4f})"
+            )
+            self._log_wandb(
+                {
+                    "train/loss": train_loss_est,
+                    "train/ppl": math.exp(train_loss_est) if train_loss_est < 20 else float("inf"),
+                    "tokens": progress.tokens_processed,
+                    "s": progress.s,
+                    "lr_scale": lr_scale,
+                    "lr_scale_base": lr_scale_base,
+                    "learning_rate_floor": float(getattr(args, "learning_rate_floor", 0.0)),
+                    "train/time_ms": approx_training_time_ms,
+                    "avg_step_ms": avg_step,
+                }
+            )
 
         # End of training
         training_time_ms, t0, ema_dloss_per_token, best_val, last_val_loss = self._perform_eval(
