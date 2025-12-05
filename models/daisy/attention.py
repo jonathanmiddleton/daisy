@@ -1,5 +1,3 @@
-import logging
-import math
 import os
 from typing import Optional
 
@@ -110,25 +108,18 @@ class CausalSelfAttention(nn.Module):
         self.last_q = None
         self.last_k = None
 
-    def _calc_qkv_pos(self, x: Tensor, pos: int):
+    def _calc_qkv(self, x: Tensor, pos: int = None):
         B, T = x.size(0), x.size(1)
         x = x.to(self.qkvo_w.dtype)
         qkv = self.qkvo_w[:3].flatten(end_dim=1)
         q, k, v = F.linear(x, qkv).view(B, T, 3 * self.num_heads, self.head_dim).chunk(3, dim=-2)
         q, k, v = norm(q), norm(k), norm(v)
-        q, k = self.rotary.step(q, pos), self.rotary.step(k, pos)
+        if pos is not None:
+            q, k = self.rotary.step(q, pos), self.rotary.step(k, pos)
+        else:
+            q, k = self.rotary(q), self.rotary(k)
 
         return q, k, v
-
-    def _calc_qkv(self, x: Tensor):
-        B, T = x.size(0), x.size(1)
-        x = x.to(self.qkvo_w.dtype)
-        qkv = self.qkvo_w[:3].flatten(end_dim=1)
-        q, k, v = F.linear(x, qkv).view(B, T, 3 * self.num_heads, self.head_dim).chunk(3, dim=-2)
-        q, k, v = norm(q), norm(k), norm(v)
-        q, k = self.rotary(q), self.rotary(k)
-        return q, k, v
-
 
     def _qkv_common(self, x: torch.Tensor, ve: Optional[torch.Tensor]):
         q, k, v = self._calc_qkv(x)
@@ -184,7 +175,7 @@ class CausalSelfAttention(nn.Module):
 
     def step(self, x, k_ctx: Tensor, v_ctx: Tensor, pos: int, ve: Optional[torch.Tensor], window: int):
         B, T = x.size(0), 1
-        q, k, v = self._calc_qkv_pos(x, pos)
+        q, k, v = self._calc_qkv(x, pos)
         dtype = q.dtype
 
         if self.receives_ve:
