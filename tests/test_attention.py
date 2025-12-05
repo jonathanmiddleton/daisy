@@ -23,10 +23,15 @@ def batched_sdpa_reference(attn: CausalSelfAttention, x: torch.Tensor, lambdas: 
     q, k = norm(q), norm(k)
     q, k = attn.rotary(q), attn.rotary(k)
     v = norm(v)
+    # Match the model's behavior: if the attention module mixes external values (receives_ve=True),
+    # use its learnable gate; otherwise, the step() path ignores ve entirely.
     if ve is not None:
-        v = lambdas[0] * v + lambdas[1] * ve.view_as(v)
-    else:
-        v = lambdas[0] * v
+        if getattr(attn, "receives_ve", False):
+            g_x = torch.sigmoid(attn.g_ve).to(v.dtype)
+            v = g_x * v + (1.0 - g_x) * ve.view_as(v)
+        else:
+            # receives_ve=False -> model ignores ve in step() so do the same here
+            v = v
     q_ = q.transpose(1, 2)  # (B, H, T, Hd)
     k_ = k.transpose(1, 2)  # (B, H, T, Hd)
     v_ = v.transpose(1, 2)  # (B, H, T, Hd)

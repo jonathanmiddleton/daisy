@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Optional
 
@@ -6,6 +7,8 @@ from torch import nn, Tensor
 from torch.nn.attention.flex_attention import BlockMask, flex_attention
 from torch.nn import functional as F
 from models.daisy.functional import norm, init_linear
+from tools.master_logger import MasterLogger
+logger = MasterLogger
 
 WINDOW_BLOCK_SIZE = 128
 
@@ -93,11 +96,6 @@ class CausalSelfAttention(nn.Module):
         self.receives_ve = receives_ve
         self.g_ve = nn.Parameter(torch.tensor(0.0)) if self.receives_ve else None # init 50/50 gate
 
-        if is_flex_available(dynamic_shapes=self.dynamic_shapes): # dynamic shapes fail because of implied constraints within BlockMask
-            self.forward = self.forward_flex
-        else:
-            self.forward = self.forward_sdpa
-
     def reset_history(self):
         self.last_q = None
         self.last_k = None
@@ -122,7 +120,7 @@ class CausalSelfAttention(nn.Module):
         return q, k, v
 
 
-    def _qkv_common(self, x: torch.Tensor, ve: torch.Tensor | None):
+    def _qkv_common(self, x: torch.Tensor, ve: Optional[torch.Tensor]):
         q, k, v = self._calc_qkv(x)
         dtype = q.dtype
         if self.receives_ve:
@@ -145,11 +143,11 @@ class CausalSelfAttention(nn.Module):
         y = torch.nn.functional.linear(y, self.qkvo_w[3])
         return y, k_.transpose(1, 2), v_.transpose(1, 2), q_.transpose(1, 2)
 
-    def forward_sdpa(self, x: torch.Tensor, ve: torch.Tensor | None,  attn_mask: Tensor, block_mask: Optional[Tensor] = None):
+    def forward_sdpa(self, x: torch.Tensor,ve: Optional[torch.Tensor],  attn_mask: Optional[Tensor] = None):
         y, _, _, _ = self._sdpa_common(x, ve,  attn_mask=attn_mask)
         return y
 
-    def forward_flex(self, x: torch.Tensor, ve: torch.Tensor | None,  block_mask: BlockMask, attn_mask: Tensor):
+    def forward_flex(self, x: torch.Tensor, ve: Optional[torch.Tensor],  block_mask: BlockMask):
         B, T = x.size(0), x.size(1)
         q_, k_, v_ = self._qkv_common(x, ve)
         y = _flex_call(q_, k_, v_, block_mask=block_mask, scale=self.attn_scale)
@@ -157,8 +155,15 @@ class CausalSelfAttention(nn.Module):
         y = torch.nn.functional.linear(y, self.qkvo_w[3])
         return y
 
-    def prefill(self, x: torch.Tensor, ve: torch.Tensor | None,  attn_mask: Tensor = None, debug: bool = False):
-        #attn_mask: for future document-causal masking
+    def forward(self, x: torch.Tensor, ve: Optional[torch.Tensor],  block_mask: Optional[BlockMask] = None, attn_mask: Optional[Tensor] = None):
+        if is_flex_available(dynamic_shapes=self.dynamic_shapes) and block_mask is not None:
+            if logger.isDebugEnabled(): logger.debug(f"Using FlexAttention with block_mask.")
+            return self.forward_flex(x, ve, block_mask=block_mask)
+        else:
+            if logger.isDebugEnabled(): logger.debug(f"Using SDPA with attn_mask = {attn_mask is not None}.")
+            return self.forward_sdpa(x, ve, attn_mask=attn_mask)
+
+    def prefill(self, x: torch.Tensor, ve: Optional[torch.Tensor],  attn_mask: Tensor = None, debug: bool = False):
         y, k, v, q = self._sdpa_common(x, ve, attn_mask=attn_mask)
 
         if debug:
@@ -166,7 +171,7 @@ class CausalSelfAttention(nn.Module):
             self.last_k = k
         return y, k.transpose(1, 2), v.transpose(1, 2)
 
-    def step(self, x, k_ctx: Tensor, v_ctx: Tensor, pos: int, ve: Tensor | None, window: int):
+    def step(self, x, k_ctx: Tensor, v_ctx: Tensor, pos: int, ve: Optional[torch.Tensor], window: int):
         B, T = x.size(0), 1
         q, k, v = self._calc_qkv_pos(x, pos)
         dtype = q.dtype
