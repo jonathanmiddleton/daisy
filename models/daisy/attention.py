@@ -74,7 +74,7 @@ class Rotary(nn.Module):
 
 
 class CausalSelfAttention(nn.Module):
-    def __init__(self, dim: int, num_heads: int, head_dim, dynamic_shapes: bool = False, receives_ve: bool = False):
+    def __init__(self, dim: int, num_heads: int, head_dim, dynamic_shapes: bool = False, receives_ve: bool = False, layer_idx: Optional[int] = None):
         super().__init__()
         torch._assert(dim % num_heads == 0, "dim must be divisible by num_heads")
         self.num_heads = num_heads
@@ -93,7 +93,23 @@ class CausalSelfAttention(nn.Module):
         self.last_q = None
         self.last_k = None
         self.receives_ve = receives_ve
-        self.g_ve = nn.Parameter(torch.tensor(0.0)) if self.receives_ve else None # init 50/50 gate
+        if self.receives_ve:
+            if layer_idx is not None:
+                ve_init_logits = {
+                    0: 0.3228,  # .58/.42 gate
+                    1: 0.0,  # .5/.5 gate
+                    2: -1.5163,  # .18/.82 gate
+                    21: -2.4423,  # .8/.92 gate
+                    22: -2.9444,  # .5/.95 gate
+                    23: 10.0,  # 1./0. gate
+                }
+                init_val = ve_init_logits.get(layer_idx, 0.0)
+                logger.debug(f"Initializing CausalSelfAttention layer {layer_idx} with g_ve={init_val}")
+                self.g_ve = nn.Parameter(torch.tensor(init_val))
+            else:
+                self.g_ve = nn.Parameter(torch.tensor(0.0))
+        else:
+            self.g_ve = None
 
         self.debug_logging = logger.isDebugEnabled() # quasi-static compile-friendly boolean for logging
 
