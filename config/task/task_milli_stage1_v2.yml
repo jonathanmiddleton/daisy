@@ -1,0 +1,65 @@
+# Logging
+wandb_log: true
+wandb_project: 'daisy'
+wandb_run_name: 'milli-dclm-task-stage1'
+wandb_group: 'milli-dclm-task'
+# SFT
+train_mode: "task"
+task_train_root: "data/instruct_mix"
+task_train_split: "train_stage_00"
+task_val_debug_log_samples: false # debug log, all ranks
+task_val_shards:
+  - type: "instruct-tasks"
+    path: "data/instruct_mix/"
+    split: "val_stage_00"
+    target_tokens: 80_000
+val_shards:
+  - type: "dclm_baseline"
+    path: "data/dclm_baseline/dclm_baseline_val_000000.bin"
+    target_tokens: 10_393_600
+    sequence_length: 37_120
+
+# Run length: PER-RANK token budget
+target_tokens: 10_000_000
+val_loss_every_tokens: 50_000
+log_interval: 74_240
+# Hard max example length
+train_attention_window_len: 4096
+training_sequence_length: 37_120
+# Checkpoint
+init_checkpoint: ""
+# Torch config
+torch.coordinate_descent_tuning: false
+
+cooldown_frac: 1.0
+learning_rate_floor: 0.0
+learning_rate_schedule: linear_decay
+# Optimizers configuration
+optimizers:
+  - type: AdamW
+    betas: [0.9, 0.999]
+    eps: 1.0e-10
+    weight_decay: 0.01
+    fused: true
+    params:
+      - group: head_params
+        lr: 1.732e-4
+      - group: embed_params
+        lr: 1.732e-6
+      - group: scalar_params
+        lr: 6.495e-6
+  - type: Muon
+    momentum: .95
+    weight_decay: 0.1
+    params:
+      - group: hidden_matrix_params
+        lr: 1.25e-4
+full_windows: true
+# Gradient accumulation
+grad_acc_steps: 1
+# Checkpoints
+checkpoint_warmup_tokens:   1     # token warmup before checkpoints
+checkpoint_per_n_tokens:  1         # checkpoint interval by tokens
+save_checkpoint: true
+# Model Definition
+model_spec: daisy_milli
