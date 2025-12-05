@@ -1,6 +1,8 @@
 from ctypes import DEFAULT_MODE
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
+from pathlib import Path
+import os
 
 import torch
 from torch import nn
@@ -90,7 +92,18 @@ def _normalize(obj: Any) -> LoadedCheckpoint:
 
 
 def load_checkpoint(path: FileLike, map_location: Any | None = None, strip_prefix: bool = True) -> LoadedCheckpoint:
-    obj = torch.load(path, map_location=map_location)
+    # Resolve path fallback: if a simple filename is provided and not found, try checkpoints/<filename>
+    candidate: FileLike = path
+    if isinstance(path, (str, bytes, os.PathLike)):
+        p = Path(path)
+        # If the path doesn't exist and appears to be just a filename (no directory components),
+        # try looking under the default "checkpoints" directory.
+        if not p.exists() and p.name == p.as_posix():
+            alt = Path("checkpoints") / p.name
+            if alt.exists():
+                candidate = str(alt)
+
+    obj = torch.load(candidate, map_location=map_location)
     ckpt = _normalize(obj)
     if strip_prefix:
         ckpt.model = remove_prefix(ckpt.model)
