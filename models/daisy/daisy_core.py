@@ -147,12 +147,13 @@ class DaisyCore(nn.Module):
         self.use_value_embeddings = use_value_embeddings
 
         self.ve_layers = []
-        self.ve_modules: nn.ModuleList[nn.Embedding] = nn.ModuleList([])
         self.ve_module_map = {}
         if self.use_value_embeddings:
             self.ve_layers = _pick_value_embedding_layers(self.attn_layers)
             self.ve_module_map: Dict[int, Optional[nn.Embedding]] = _build_ve_layer_map(num_layers, self.ve_layers, vocab_size, model_dim)
-            self.ve_modules: nn.ModuleList[nn.Embedding] = nn.ModuleList({id(m): m for m in self.ve_module_map.values()}.values()) # register unique modules
+            self.ve_modules: nn.ModuleList[nn.Embedding] = nn.ModuleList({id(m): m for m in self.ve_module_map.values() if m is not None}.values()) # register unique modules
+        else:
+            self.ve_modules: nn.ModuleList[nn.Embedding] = nn.ModuleList([])
 
         self.attn_impl_id = self.attn_impl_ids.get_attn_impl_id(attn_impl)
         self.blocks = nn.ModuleList(

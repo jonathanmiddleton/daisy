@@ -39,7 +39,14 @@ def derive_named_param_groups(model: nn.Module) -> dict[str, list[nn.Parameter]]
     hidden_matrix_params.sort(key=lambda x: x.size(), reverse=True)
     hidden_scalar_params.sort(key=lambda x: x.size(), reverse=True)
     # Embedding parameters
-    embed_params = [*model.embed.parameters(), *(p for embedding in model.ve_modules for p in embedding.parameters())]
+    # Collect parameters from the token embedding and any valid value-embedding modules.
+    embed_params: list[nn.Parameter] = [*model.embed.parameters()]
+    # model.ve_modules may be empty if value embeddings are not used.
+    ve_modules = getattr(model, "ve_modules", None)
+    if ve_modules is not None:
+        for m in ve_modules:
+            if isinstance(m, nn.Module):
+                embed_params.extend(list(m.parameters()))
 
     if getattr(model, "scalars", None) is not None:
         # v1 model
