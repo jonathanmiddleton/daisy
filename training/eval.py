@@ -39,17 +39,30 @@ class Evaluator:
         data_generator: Any,
         distributed_enabled: bool,
         rank: int,
-        attn_window_len: int,
-        val_type: str = "pretraining", # "pretraining" or "task"
+        attn_window_len: Optional[int] = None,
+        val_type: str = "pretraining",  # "pretraining" or "task"
         log_samples: bool = False,
         sample_log_path: Optional[str] = None,
         tokenizer_name: str = "gpt2",
+        # Backward-compat keyword args accepted but unused in this evaluator implementation.
+        # Tests may still pass these, so we allow them to avoid TypeError.
+        world_size: Optional[int] = None,  # noqa: ARG002 - accepted for compatibility
+        training_sequence_length: Optional[int] = None,  # noqa: ARG002 - accepted for compatibility
+        **_: Any,
     ):
         self._ddg = data_generator
         self._distributed_enabled = bool(distributed_enabled)
         self._rank = int(rank or 0)
         self._val_type = val_type
-        self._attn_window_len = attn_window_len
+        # Prefer explicit attn_window_len, otherwise fall back to training_sequence_length
+        if attn_window_len is None:
+            if training_sequence_length is not None:
+                self._attn_window_len = int(training_sequence_length)
+            else:
+                # Sensible default, matches WINDOW_BLOCK_SIZE multiple
+                self._attn_window_len = 128
+        else:
+            self._attn_window_len = int(attn_window_len)
 
         # Approximate global tokens processed per eval step
         self._world_batch_tokens: Optional[int] = None
@@ -114,10 +127,14 @@ class Evaluator:
         Compute approximate global tokens per eval step from the local batch.
         """
         local_tokens = int(inputs.numel())
+        # Determine the effective world size for computing GLOBAL tokens per step.
+        # If running with torch.distributed enabled, use the actual process group size.
+        # Otherwise (e.g., unit tests simulating per-rank calls without dist), try to
+        # read the generator's declared world_size; default to 1 if unavailable.
         if self._distributed_enabled:
             world_size = dist.get_world_size()
         else:
-            world_size = 1
+            world_size = int(getattr(self._ddg, "world_size", 1))
         return local_tokens * world_size
 
     def _log_sample(
@@ -170,7 +187,7 @@ class Evaluator:
                 f"to '{self._sample_log_path}': {e}"
             )
 
-    def eval(self, model: nn.Module, total_tokens: int, schedule: float) -> Dict[str, float]:
+    def eval(self, model: nn.Module, total_tokens: int, schedule: float = 1.0) -> Dict[str, float]:
         """
         Run evaluation on approximately 'total_tokens' global tokens.
 

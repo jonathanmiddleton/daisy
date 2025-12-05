@@ -38,9 +38,9 @@ class Block(nn.Module):
             if attn_impl == 'kimi_linear':
                 from models.daisy.attention_kimi import KimiLinearSelfAttention
                 if layer_idx % 4 == 0: self.attn = KimiLinearSelfAttention(dim, num_heads, max_seq_len, head_dim,receives_ve)
-                else: self.attn = CausalSelfAttention(dim, num_heads, max_seq_len, head_dim, receives_ve)
+                else: self.attn = CausalSelfAttention(dim, num_heads, head_dim, receives_ve)
             elif attn_impl == 'standard':
-                self.attn = CausalSelfAttention(dim, num_heads, max_seq_len, head_dim, dynamic_shapes, receives_ve)
+                self.attn = CausalSelfAttention(dim, num_heads, head_dim, dynamic_shapes, receives_ve)
             else:
                 raise ValueError(f'Unknown attn_impl: {attn_impl}')
         self.mlp = MLP(dim)

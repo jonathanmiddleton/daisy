@@ -29,11 +29,11 @@ def test_causal_self_attention_forward_equals_step(T, W,  monkeypatch):
         ve_full = torch.randn(1, T, H, D, device=device, dtype=dtype)
 
         if torch.cuda.is_available():
-            m = CausalSelfAttention(dim=dim, num_heads=H, max_seq_len=max_seq_len, head_dim=D).to(device).eval()
+            m = CausalSelfAttention(dim=dim, num_heads=H, head_dim=D).to(device).eval()
             mask = _make_block_mask(T, H, W, device)
             y_full = m.forward(x, ve=ve_full, block_mask=mask)
         else:
-            m = CausalSelfAttention(dim=dim, num_heads=H, max_seq_len=max_seq_len, head_dim=D).to(device).eval()
+            m = CausalSelfAttention(dim=dim, num_heads=H, head_dim=D).to(device).eval()
             y_full = m.forward(x, ve=ve_full, attn_mask=None)
         # Initialize empty KV caches and append per token to match causal semantics
         K = torch.empty(1, 0, H, D, device=device, dtype=dtype)

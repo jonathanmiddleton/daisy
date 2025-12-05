@@ -4,7 +4,7 @@ from models.daisy.attention import CausalSelfAttention
 
 
 def make_attn(dim=16, heads=2, head_dim=8, max_seq_len=64):
-    attn = CausalSelfAttention(dim=dim, num_heads=heads, max_seq_len=max_seq_len, head_dim=head_dim)
+    attn = CausalSelfAttention(dim=dim, num_heads=heads, head_dim=head_dim)
     # For numerical stability and CPU support, run in float32 for tests
     attn.qkvo_w = torch.nn.Parameter(attn.qkvo_w.float())
     # Reinitialize output projection to non-zero so outputs aren't trivially zero

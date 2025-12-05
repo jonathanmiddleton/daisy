@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 from typing import Optional
 
@@ -75,7 +76,7 @@ class Rotary(nn.Module):
 
 
 class CausalSelfAttention(nn.Module):
-    def __init__(self, dim: int, num_heads: int, max_seq_len: int, head_dim, dynamic_shapes: bool = False, receives_ve: bool = False): #TODO automatically extend Rotary cache to avoid need for max_seq_len param
+    def __init__(self, dim: int, num_heads: int, head_dim, dynamic_shapes: bool = False, receives_ve: bool = False):
         super().__init__()
         torch._assert(dim % num_heads == 0, "dim must be divisible by num_heads")
         self.num_heads = num_heads
@@ -87,7 +88,7 @@ class CausalSelfAttention(nn.Module):
         self.qkvo_w = nn.Parameter(init_linear(torch.empty(4, self.m_dim, self.m_dim)).bfloat16())
         if os.getenv("DISABLE_O_ZERO_INIT", "") != "1":  # 1 for unittests
             self.qkvo_w.detach()[3].zero_()
-        self.rotary = Rotary(head_dim, max_seq_len)
+        self.rotary = Rotary(head_dim, 4096)
         # scale the attention logits by given constant, instead of the default head_dim**-0.5, by @leloykun
         # inspired by learnable scalars used by @brendanh0gan https://x.com/hi_tysam/status/1879693583898591283
         self.attn_scale = 0.12
@@ -95,6 +96,15 @@ class CausalSelfAttention(nn.Module):
         self.last_k = None
         self.receives_ve = receives_ve
         self.g_ve = nn.Parameter(torch.tensor(0.0)) if self.receives_ve else None # init 50/50 gate
+
+    def maybeResizeRotary(self, newSize: int):
+        if newSize <= self.rotary._max_seq_len: return
+
+        from math import pow
+        def next_power_of_2(s: int):
+            pows = [int(pow(2, n)) for n in range(19)]
+            return next(n for n in pows if n > s)
+        self.rotary = Rotary(self.head_dim, next_power_of_2(newSize))
 
     def reset_history(self):
         self.last_q = None
@@ -156,6 +166,7 @@ class CausalSelfAttention(nn.Module):
         return y
 
     def forward(self, x: torch.Tensor, ve: Optional[torch.Tensor],  block_mask: Optional[BlockMask] = None, attn_mask: Optional[Tensor] = None):
+        self.maybeResizeRotary(x.size(-1))
         if is_flex_available(dynamic_shapes=self.dynamic_shapes) and block_mask is not None:
             if logger.isDebugEnabled(): logger.debug(f"Using FlexAttention with block_mask.")
             return self.forward_flex(x, ve, block_mask=block_mask)
