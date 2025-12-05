@@ -160,7 +160,7 @@ class CausalSelfAttention(nn.Module):
 
     def forward(self, x: torch.Tensor, ve: Optional[torch.Tensor],  block_mask: Optional[BlockMask] = None, attn_mask: Optional[Tensor] = None):
         if logger.isDebugEnabled(): logger.debug(f"forward(x.shape={x.shape})")
-        self.maybeResizeRotary(x.size(-1))
+        self.maybeResizeRotary(x.size(-2)) # B,T,C
         if is_flex_available(dynamic_shapes=self.dynamic_shapes) and block_mask is not None:
             if logger.isDebugEnabled(): logger.debug(f"Using FlexAttention with block_mask.")
             return self.forward_flex(x, ve, block_mask=block_mask)
