@@ -86,7 +86,7 @@ class CausalSelfAttention(nn.Module):
         self.qkvo_w = nn.Parameter(init_linear(torch.empty(4, self.m_dim, self.m_dim)).bfloat16())
         if os.getenv("DISABLE_O_ZERO_INIT", "") != "1":  # 1 for unittests
             self.qkvo_w.detach()[3].zero_()
-        self.rotary = Rotary(head_dim, 4096)
+        self.rotary = Rotary(head_dim, 131072) # magic = max val length TODO fix this
         # scale the attention logits by given constant, instead of the default head_dim**-0.5, by @leloykun
         # inspired by learnable scalars used by @brendanh0gan https://x.com/hi_tysam/status/1879693583898591283
         self.attn_scale = 0.12
@@ -97,18 +97,19 @@ class CausalSelfAttention(nn.Module):
 
         self.debug_logging = logger.isDebugEnabled() # quasi-static compile-friendly boolean for logging
 
-    def maybeResizeRotary(self, x: Tensor):
-        T = x.size(-2)
-        if self.debug_logging: logger.debug(f"maybeResizeRotary newSize={T} Rotary capacity= {self.rotary._max_seq_len}")
-        if T <= self.rotary._max_seq_len: return
-
-        if self.debug_logging: logger.debug(f"Resizing Rotary to {T} positions.")
-        from math import pow
-        def next_power_of_2(s: int):
-            pows = [int(pow(2, n)) for n in range(19)]
-            return next(n for n in pows if n > s)
-        self.rotary = Rotary(self.head_dim, next_power_of_2(T))
-        self.rotary.to(x.device)
+# TODO can't create a new Module after compile
+    # def maybeResizeRotary(self, x: Tensor):
+    #     T = x.size(-2)
+    #     if self.debug_logging: logger.debug(f"maybeResizeRotary newSize={T} Rotary capacity= {self.rotary._max_seq_len}")
+    #     if T <= self.rotary._max_seq_len: return
+    #
+    #     if self.debug_logging: logger.debug(f"Resizing Rotary to {T} positions.")
+    #     from math import pow
+    #     def next_power_of_2(s: int):
+    #         pows = [int(pow(2, n)) for n in range(19)]
+    #         return next(n for n in pows if n > s)
+    #     self.rotary = Rotary(self.head_dim, next_power_of_2(T))
+    #     self.rotary.to(x.device)
 
     def reset_history(self):
         self.last_q = None
@@ -164,7 +165,6 @@ class CausalSelfAttention(nn.Module):
 
     def forward(self, x: torch.Tensor, ve: Optional[torch.Tensor],  block_mask: Optional[BlockMask] = None, attn_mask: Optional[Tensor] = None):
         if self.debug_logging: logger.debug(f"forward(x.shape={x.shape})")
-        self.maybeResizeRotary(x)
         if is_flex_available(dynamic_shapes=self.dynamic_shapes) and block_mask is not None:
             if self.debug_logging: logger.debug(f"Using FlexAttention with block_mask.")
             return self.forward_flex(x, ve, block_mask=block_mask)
