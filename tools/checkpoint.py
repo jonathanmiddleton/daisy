@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 from torch import nn
 from torch.nn import Module
+from torch.types import FileLike
 
 from models import model_from_spec
 
@@ -88,7 +89,7 @@ def _normalize(obj: Any) -> LoadedCheckpoint:
         raise TypeError(f"Unsupported checkpoint object: {type(obj)}") from e
 
 
-def load_checkpoint(path: str, map_location: Any | None = None, strip_prefix: bool = True) -> LoadedCheckpoint:
+def load_checkpoint(path: FileLike, map_location: Any | None = None, strip_prefix: bool = True) -> LoadedCheckpoint:
     obj = torch.load(path, map_location=map_location)
     ckpt = _normalize(obj)
     if strip_prefix:
@@ -137,7 +138,7 @@ def peek_hparams(path: str, map_location: Any | None = None) -> Dict[str, Any]:
     return ckpt.hparams or {}
 
 
-def model_from_checkpoint(path: str, device: torch.device | str, dynamic_shapes: bool = False) -> tuple[Module, dict[str, Any]]:
+def model_from_checkpoint(path: FileLike, device: torch.device | str, dynamic_shapes: bool = False) -> tuple[Module, dict[str, Any]]:
     ckpt = load_checkpoint(path, map_location=device)
     state_dict = ckpt.model
     hparams = ckpt.hparams
