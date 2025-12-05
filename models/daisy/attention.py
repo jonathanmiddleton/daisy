@@ -96,8 +96,9 @@ class CausalSelfAttention(nn.Module):
         self.g_ve = nn.Parameter(torch.tensor(0.0)) if self.receives_ve else None # init 50/50 gate
 
     def maybeResizeRotary(self, newSize: int):
+        if logger.isDebugEnabled(): logger.debug(f"Rotary capacity: {self.rotary._max_seq_len} <-> input_seq_len {newSize}")
         if newSize <= self.rotary._max_seq_len: return
-
+        if logger.isDebugEnabled(): logger.debug(f"Resizing Rotary to {newSize} positions.")
         from math import pow
         def next_power_of_2(s: int):
             pows = [int(pow(2, n)) for n in range(19)]
