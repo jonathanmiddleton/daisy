@@ -95,12 +95,14 @@ class CausalSelfAttention(nn.Module):
         self.receives_ve = receives_ve
         self.g_ve = nn.Parameter(torch.tensor(0.0)) if self.receives_ve else None # init 50/50 gate
 
+        self.debug_logging = logger.isDebugEnabled() # quasi-static compile-friendly boolean for logging
+
     def maybeResizeRotary(self, x: Tensor):
         T = x.size(-2)
-        if logger.isDebugEnabled(): logger.debug(f"maybeResizeRotary newSize={T} Rotary capacity= {self.rotary._max_seq_len}")
+        if self.debug_logging: logger.debug(f"maybeResizeRotary newSize={T} Rotary capacity= {self.rotary._max_seq_len}")
         if T <= self.rotary._max_seq_len: return
 
-        if logger.isDebugEnabled(): logger.debug(f"Resizing Rotary to {T} positions.")
+        if self.debug_logging: logger.debug(f"Resizing Rotary to {T} positions.")
         from math import pow
         def next_power_of_2(s: int):
             pows = [int(pow(2, n)) for n in range(19)]
@@ -161,13 +163,13 @@ class CausalSelfAttention(nn.Module):
         return y
 
     def forward(self, x: torch.Tensor, ve: Optional[torch.Tensor],  block_mask: Optional[BlockMask] = None, attn_mask: Optional[Tensor] = None):
-        if logger.isDebugEnabled(): logger.debug(f"forward(x.shape={x.shape})")
+        if self.debug_logging: logger.debug(f"forward(x.shape={x.shape})")
         self.maybeResizeRotary(x)
         if is_flex_available(dynamic_shapes=self.dynamic_shapes) and block_mask is not None:
-            if logger.isDebugEnabled(): logger.debug(f"Using FlexAttention with block_mask.")
+            if self.debug_logging: logger.debug(f"Using FlexAttention with block_mask.")
             return self.forward_flex(x, ve, block_mask=block_mask)
         else:
-            if logger.isDebugEnabled(): logger.debug(f"Using SDPA with attn_mask = {attn_mask is not None}.")
+            if self.debug_logging: logger.debug(f"Using SDPA with attn_mask = {attn_mask is not None}.")
             return self.forward_sdpa(x, ve, attn_mask=attn_mask)
 
     def prefill(self, x: torch.Tensor, ve: Optional[torch.Tensor],  attn_mask: Tensor = None, debug: bool = False):
