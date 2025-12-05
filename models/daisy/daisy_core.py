@@ -173,6 +173,7 @@ class DaisyCore(nn.Module):
         assert num_layers % 2 == 0
         self.skip_weights = nn.Parameter(torch.ones(num_layers)*2.945) # init 95/5 gate
         self.desc = desc  # non-functional, self-describing metadata
+        self.debug_logging = logger.isDebugEnabled() # quasi-static compiler-friendly bool
 
     def reset_history(self):
         for b in self.blocks:
@@ -248,9 +249,11 @@ class DaisyCore(nn.Module):
         skip_connections = []
 
         if input_seq.device.type == "cuda" and not self.dynamic_shapes: #  FlexAttention if supported unless dynamic_shape support is required
+            if self.debug_logging: logger.debug("Building blockmasks for FlexAttention")
             block_masks = self.create_blockmasks(input_seq, sliding_window_num_blocks, L=L)
             attn_mask = None
         else:
+            if self.debug_logging: logger.debug("Building attention mask for SDPA")
             block_masks = [None] * L
             # building an attention mask for T>sqrt(2,147,483,647)==sqrt(INT_MAX) will fail
             torch._assert(input_seq.numel() <= 46340, "For attention masks with SDPA, input_seq length must be less than sqrt(2^31) ~= 46340 tokens")
