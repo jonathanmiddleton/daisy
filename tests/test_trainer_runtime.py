@@ -1,6 +1,7 @@
 import copy
 import dataclasses
 import os
+from pathlib import Path
 
 import pytest
 import torch
@@ -38,7 +39,11 @@ class TinyToyModel(torch.nn.Module):
 
 
 def test_compute_group_max_seq_len_and_partitioning():
-    base = load_hparams_from_yaml("config/test/micro-dclm.yml")
+    project_root = Path(__file__).resolve().parents[1]
+    cfg_path = project_root / "config" / "test" / "test_tiny_model.yml"
+
+    # Load a real config to get a valid Hyperparameters instance
+    base = load_hparams_from_yaml(str(cfg_path))
 
     a1 = dataclasses.replace(base)
     a1.training_sequence_length = 4096
@@ -84,8 +89,11 @@ def test_compiled_runtime_reset_restores_initial_state(monkeypatch):
     # Monkeypatch model_from_spec used inside CompiledRuntime to return our tiny model
     monkeypatch.setattr(trainer_mod, "model_from_spec", lambda *args, **kwargs: TinyToyModel())
 
+    project_root = Path(__file__).resolve().parents[1]
+    cfg_path = project_root / "config" / "test" / "test_tiny_model.yml"
+
     # Load a real config to get a valid Hyperparameters instance
-    args = load_hparams_from_yaml("config/test/micro-dclm.yml")
+    args = load_hparams_from_yaml(str(cfg_path))
     # Use tiny steps to avoid any large allocations if accidentally invoked
     args.training_sequence_length = 128
     args.max_seq_len = 128
