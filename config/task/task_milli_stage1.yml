@@ -22,7 +22,7 @@ val_shards:
 # Run length: PER-RANK token budget
 target_tokens: 10_000_000
 val_loss_every_tokens: 50_000
-
+log_interval: 74,_40
 # Hard max example length
 train_attention_window_len: 4096
 training_sequence_length: 37_120
@@ -56,7 +56,7 @@ optimizers:
         lr: 1.25e-3
 full_windows: true
 # Gradient accumulation
-grad_acc_steps: 8
+grad_acc_steps: 1
 # Checkpoints
 checkpoint_warmup_tokens:   1     # token warmup before checkpoints
 checkpoint_per_n_tokens:  1         # checkpoint interval by tokens
