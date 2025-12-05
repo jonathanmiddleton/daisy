@@ -95,16 +95,18 @@ class CausalSelfAttention(nn.Module):
         self.receives_ve = receives_ve
         self.g_ve = nn.Parameter(torch.tensor(0.0)) if self.receives_ve else None # init 50/50 gate
 
-    def maybeResizeRotary(self, newSize: int):
-        if logger.isDebugEnabled(): logger.debug(f"maybeResizeRotary newSize={newSize}")
-        if logger.isDebugEnabled(): logger.debug(f"Rotary capacity= {self.rotary._max_seq_len}")
-        if newSize <= self.rotary._max_seq_len: return
-        if logger.isDebugEnabled(): logger.debug(f"Resizing Rotary to {newSize} positions.")
+    def maybeResizeRotary(self, x: Tensor):
+        T = x.size(-2)
+        if logger.isDebugEnabled(): logger.debug(f"maybeResizeRotary newSize={T} Rotary capacity= {self.rotary._max_seq_len}")
+        if T <= self.rotary._max_seq_len: return
+
+        if logger.isDebugEnabled(): logger.debug(f"Resizing Rotary to {T} positions.")
         from math import pow
         def next_power_of_2(s: int):
             pows = [int(pow(2, n)) for n in range(19)]
             return next(n for n in pows if n > s)
-        self.rotary = Rotary(self.head_dim, next_power_of_2(newSize))
+        self.rotary = Rotary(self.head_dim, next_power_of_2(T))
+        self.rotary.to(x.device)
 
     def reset_history(self):
         self.last_q = None
@@ -160,7 +162,7 @@ class CausalSelfAttention(nn.Module):
 
     def forward(self, x: torch.Tensor, ve: Optional[torch.Tensor],  block_mask: Optional[BlockMask] = None, attn_mask: Optional[Tensor] = None):
         if logger.isDebugEnabled(): logger.debug(f"forward(x.shape={x.shape})")
-        self.maybeResizeRotary(x.size(-2)) # B,T,C
+        self.maybeResizeRotary(x)
         if is_flex_available(dynamic_shapes=self.dynamic_shapes) and block_mask is not None:
             if logger.isDebugEnabled(): logger.debug(f"Using FlexAttention with block_mask.")
             return self.forward_flex(x, ve, block_mask=block_mask)
