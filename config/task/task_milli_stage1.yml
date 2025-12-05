@@ -1,8 +1,8 @@
 # Logging
 wandb_log: true
 wandb_project: 'daisy'
-wandb_run_name: 'milli-dclm-sparse-task-stage1'
-wandb_group: 'milli-dclm-sparse-task'
+wandb_run_name: 'milli-dclm-task-stage1'
+wandb_group: 'milli-dclm-task'
 # SFT
 train_mode: "task"
 task_train_root: "data/instruct_mix"
