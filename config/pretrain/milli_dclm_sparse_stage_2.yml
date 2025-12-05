@@ -13,6 +13,7 @@ learning_rate_schedule: cosine_decay
 learning_rate_floor: 0.1
 training_sequence_length: 37_120
 train_attention_window_len: 4096
+log_interval: 2_969_600
 lr_scale: 0.5
 # Optimizers configuration
 optimizers:

@@ -13,6 +13,7 @@ class ProgressMeter:
         eval_every_tokens: int | None,
         checkpoint_per_n_tokens: int | None,
         checkpoint_warmup_tokens: int = 0,
+        log_every_tokens: int | None = None,
     ) -> None:
         """
         Initializes the object with a token processing schedule and optional evaluation
@@ -29,6 +30,9 @@ class ProgressMeter:
         self.tokens_processed = 0
         self.eval_every_tokens = int(eval_every_tokens) if eval_every_tokens else None
         self.next_eval_at = 0
+        # logging schedule
+        self.log_every_tokens = int(log_every_tokens) if log_every_tokens else None
+        self.next_log_at = (self.log_every_tokens if self.log_every_tokens is not None else None)
         # checkpoint schedule: allow 0 meaning "after warmup, then once per update"
         self.checkpoint_per_n_tokens = int(checkpoint_per_n_tokens) if checkpoint_per_n_tokens is not None and checkpoint_per_n_tokens >= 0 else None
         self.checkpoint_warmup_tokens = int(checkpoint_warmup_tokens or 0)
@@ -60,6 +64,16 @@ class ProgressMeter:
             while self.tokens_processed >= self.next_eval_at:
                 self.next_eval_at += self.eval_every_tokens
 
+    def should_log(self) -> bool:
+        if self.log_every_tokens is None or self.next_log_at is None:
+            return False
+        return self.tokens_processed >= self.next_log_at
+
+    def mark_log_done(self) -> None:
+        now = self.tokens_processed
+        if self.log_every_tokens is not None and self.next_log_at is not None:
+            self.next_log_at = now + self.log_every_tokens
+
     def should_checkpoint(self) -> bool:
         if self.checkpoint_per_n_tokens is None or self.next_checkpoint_at is None:
             return False
@@ -80,6 +94,7 @@ class ProgressMeter:
         return {
             "tokens_processed": self.tokens_processed,
             "next_eval_at": self.next_eval_at,
+            "next_log_at": self.next_log_at,
             "next_checkpoint_at": self.next_checkpoint_at,
             "target_tokens": self.target_tokens,
         }
@@ -87,4 +102,5 @@ class ProgressMeter:
     def load_state_dict(self, d: dict) -> None:
         self.tokens_processed = int(d.get("tokens_processed", 0))
         self.next_eval_at = d.get("next_eval_at", self.eval_every_tokens)
+        self.next_log_at = d.get("next_log_at", self.log_every_tokens)
         self.next_checkpoint_at = d.get("next_checkpoint_at", self.next_checkpoint_at)

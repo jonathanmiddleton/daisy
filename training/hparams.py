@@ -74,6 +74,8 @@ class Hyperparameters:
     # Each item: {type: str, path: str, split: str = 'val', target_tokens: int}
     task_val_shards: list[dict] = dataclasses.field(default_factory=list)
 
+    # Interval in tokens for emitting training logs (logger and wandb). Must be > 0.
+    log_interval: int = 16384
     # Training Defaults
     training_sequence_length: int = 16384
     # Optional global learning-rate scale applied to every configured param-group lr
@@ -248,6 +250,7 @@ def validate_hparams(args: Hyperparameters) -> Hyperparameters:
         gas = int(args.grad_acc_steps)
         cdf = float(args.cooldown_frac)
         vlet = int(args.val_loss_every_tokens)
+        logi = int(args.log_interval)
         spnt = int(args.checkpoint_per_n_tokens)
         swt = int(args.checkpoint_warmup_tokens)
     except Exception as e:
@@ -284,6 +287,8 @@ def validate_hparams(args: Hyperparameters) -> Hyperparameters:
         raise ValueError(f"learning_rate_floor must be in [0,1], got {lrf}")
     if vlet < 0:
         raise ValueError(f"val_loss_every_tokens must be >= 0, got {vlet}")
+    if logi <= 0:
+        raise ValueError(f"log_interval must be > 0, got {logi}")
     if spnt < 0:
         raise ValueError(f"checkpoint_per_n_tokens must be >= 0, got {spnt}")
     if swt < 0:

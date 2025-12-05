@@ -583,6 +583,7 @@ class TrainingSession:
             eval_every_tokens=eval_every_tokens,
             checkpoint_per_n_tokens=int(args.checkpoint_per_n_tokens),
             checkpoint_warmup_tokens=int(args.checkpoint_warmup_tokens),
+            log_every_tokens=int(self.args.log_interval),
         )
 
         # Tracking for eval stats and ETA
@@ -728,24 +729,27 @@ class TrainingSession:
                 if step >= 10
                 else "avg_step: (warmup to step 10)"
             )
-            logger.info(
-                f"step:{step} train_loss:{train_loss_est:.4f} tokens:{progress.tokens_processed:,}/{progress.target_tokens:,} "
-                f"(s={progress.s:.4f}) train_time:{approx_training_time_ms:,.0f}ms {avg_step} "
-                f"lr_scale:{lr_scale:.4f} (base:{lr_scale_base:.4f} floor:{float(getattr(args, 'learning_rate_floor', 0.0)):.4f})"
-            )
-            self._log_wandb(
-                {
-                    "train/loss": train_loss_est,
-                    "train/ppl": math.exp(train_loss_est) if train_loss_est < 20 else float("inf"),
-                    "tokens": progress.tokens_processed,
-                    "s": progress.s,
-                    "lr_scale": lr_scale,
-                    "lr_scale_base": lr_scale_base,
-                    "learning_rate_floor": float(getattr(args, "learning_rate_floor", 0.0)),
-                    "train/time_ms": approx_training_time_ms,
-                    "avg_step_ms": avg_step,
-                }
-            )
+
+            if progress.should_log():
+                logger.info(
+                    f"step:{step} train_loss:{train_loss_est:.4f} tokens:{progress.tokens_processed:,}/{progress.target_tokens:,} "
+                    f"(s={progress.s:.4f}) train_time:{approx_training_time_ms:,.0f}ms {avg_step} "
+                    f"lr_scale:{lr_scale:.4f} (base:{lr_scale_base:.4f} floor:{float(getattr(args, 'learning_rate_floor', 0.0)):.4f})"
+                )
+                self._log_wandb(
+                    {
+                        "train/loss": train_loss_est,
+                        "train/ppl": math.exp(train_loss_est) if train_loss_est < 20 else float("inf"),
+                        "tokens": progress.tokens_processed,
+                        "s": progress.s,
+                        "lr_scale": lr_scale,
+                        "lr_scale_base": lr_scale_base,
+                        "learning_rate_floor": float(getattr(args, "learning_rate_floor", 0.0)),
+                        "train/time_ms": approx_training_time_ms,
+                        "avg_step_ms": avg_step,
+                    }
+                )
+                progress.mark_log_done()
 
         # End of training
         training_time_ms, t0, ema_dloss_per_token, best_val, last_val_loss = self._perform_eval(

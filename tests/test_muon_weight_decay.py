@@ -18,6 +18,8 @@ def test_muon_weight_decay_override_from_yaml(tmp_path: Path):
 wandb_log: false
 wandb_project: 'daisy'
 wandb_run_name: 'test-tiny'
+# Logging interval in tokens
+log_interval: 65536
 # Pretraining configuration
 train_shards: "data/fineweb/fineweb_train_*.bin"
 target_tokens: 1000000
@@ -91,6 +93,8 @@ def test_muon_requires_weight_decay_in_yaml(tmp_path: Path):
 wandb_log: false
 wandb_project: 'daisy'
 wandb_run_name: 'test-tiny'
+# Logging interval in tokens
+log_interval: 65536
 # Pretraining configuration
 train_shards: "data/fineweb/fineweb_train_*.bin"
 target_tokens: 1000000
