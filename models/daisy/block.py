@@ -44,6 +44,7 @@ class Block(nn.Module):
             else:
                 raise ValueError(f'Unknown attn_impl: {attn_impl}')
         self.mlp = MLP(dim)
+        self.layer_idx = layer_idx
 
     def reset_history(self):
         if self.attn is not None:
