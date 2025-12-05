@@ -52,7 +52,7 @@ class Rotary(nn.Module):
         self._max_seq_len = int(max_seq_len)
 
     def _get_cos_sin(self, L):
-        torch._assert(L <= self.cos.shape[0], "Rotary buffers too small")
+        torch._assert(L <= self.cos.shape[0], f"Rotary buffers too small {self.cos.shape[0]} < {L}")
         cos = self.cos.narrow(0, 0, L)
         sin = self.sin.narrow(0, 0, L)
         return cos, sin
