@@ -357,7 +357,7 @@ def format_report_text(report: Dict[str, Any]) -> str:
     else:
         L = sc.get("num_layers")
         # Note: num_layers is derived directly from len(model.blocks) during analysis
-        lines.append(f"num_layers (inferred): {L}")
+        lines.append(f"num_layers: {L}")
         lines.append(f"threshold for near-zero: {sc['zero_threshold']}")
         gsum = sc.get("groups", {})
         # Map internal group keys to user-facing labels matching the table headers

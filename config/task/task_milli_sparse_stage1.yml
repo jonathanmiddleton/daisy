@@ -50,7 +50,7 @@ optimizers:
         frozen: true
   - type: Muon
     momentum: .95
-    weight_decay: 0.0
+    weight_decay: 0.1
     params:
       - group: hidden_matrix_params
         lr: 1.25e-3
