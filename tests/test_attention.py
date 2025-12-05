@@ -95,7 +95,7 @@ def test_step_matches_batched_sdpa_full_context(T, window):
         for t in range(T):
             x_t = x[:, t : t + 1, :]
             ve_t = None if ve is None else ve[:, t : t + 1, :]
-            y_t, k_t, v_t = attn.step(x_t, k_ctx, v_ctx, pos=t, ve=ve_t, sa_lambdas=lambdas, window=window)
+            y_t, k_t, v_t = attn.step(x_t, k_ctx, v_ctx, pos=t, ve=ve_t, window=window)
             ys.append(y_t)
             # update caches
             k_ctx = torch.cat([k_ctx, k_t], dim=1)
@@ -130,7 +130,7 @@ def test_step_matches_windowed_reference():
         for t in range(T):
             ve_step = ve_full.narrow(1, t, 1)
             x_t = x[:, t : t + 1, :]
-            y_t, k_t, v_t = attn.step(x_t, k_ctx, v_ctx, pos=t, ve=ve_step, sa_lambdas=lambdas, window=window)
+            y_t, k_t, v_t = attn.step(x_t, k_ctx, v_ctx, pos=t, ve=ve_step, window=window)
             ys.append(y_t)
             k_ctx = torch.cat([k_ctx, k_t], dim=1)
             v_ctx = torch.cat([v_ctx, v_t], dim=1)

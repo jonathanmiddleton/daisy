@@ -103,7 +103,27 @@ class CompiledRuntime:
 
     def __init__(self, args_for_group: Hyperparameters, *, dynamic: bool):
         os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
-        torch.manual_seed(1337)
+        # Apply configurable RNG seed
+        try:
+            seed = int(getattr(args_for_group, "seed", 1337))
+        except Exception:
+            seed = 1337
+        try:
+            import random
+            random.seed(seed)
+        except Exception:
+            logger.error(f"Failed to seed random.seed({seed})")
+        try:
+            import numpy as np
+            np.random.seed(seed)
+        except Exception:
+            logger.error(f"Failed to seed numpy.random.seed({seed})")
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            try:
+                torch.cuda.manual_seed_all(seed)
+            except Exception:
+                logger.error(f"Failed to seed torch.cuda.manual_seed_all({seed})")
 
         self.DEBUG_LOG_ENABLED = logger.isDebugEnabled() # quasi-static compiler-friendly bool
 

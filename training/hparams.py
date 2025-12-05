@@ -54,6 +54,8 @@ class Hyperparameters:
     init_checkpoint: str | None = None
     use_value_embeddings: bool = True
     use_tied_embeddings: bool = False
+    # Global RNG seed for training (applied to torch and CUDA). Defaults to 1337.
+    seed: int = 1337
     train_mode: str = "pretrain"  # "pretrain" or "task"
     train_shards: str = ""
     # List of evaluation datasets with descriptive type and path glob
