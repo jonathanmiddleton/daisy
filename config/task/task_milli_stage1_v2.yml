@@ -7,6 +7,10 @@ wandb_group: 'milli-dclm-task'
 train_mode: "task"
 task_train_root: "data/instruct_mix"
 task_train_split: "train_stage_00"
+target_tokens: 10_000_000
+training_sequence_length: 37_120
+
+
 task_val_debug_log_samples: false # debug log, all ranks
 task_val_shards:
   - type: "instruct-tasks"
@@ -21,12 +25,13 @@ val_shards:
     sequence_length: 131_072
 
 
-target_tokens: 10_000_000
+
+
 val_loss_every_tokens: 32_768
 log_interval: 32_768
 
 train_attention_window_len: 8192
-training_sequence_length: 37_120
+
 # Checkpoint
 init_checkpoint: ""
 # Torch config
