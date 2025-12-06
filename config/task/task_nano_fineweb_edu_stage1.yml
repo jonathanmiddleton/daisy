@@ -21,7 +21,7 @@ val_shards:
     sequence_length: 131_072
 
 target_tokens: 10_000_000
-val_loss_every_tokens: 32_768
+val_loss_every_tokens: 1_638_400
 log_interval: 32_768
 
 train_attention_window_len: 2048
