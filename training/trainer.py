@@ -1,13 +1,11 @@
 import copy
-import itertools
-import json
 import math
 import os
 import sys
 import time
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
-from typing import Optional, Iterable, Tuple, Dict, List
+from typing import Optional, Tuple, Dict, List, Iterator
 
 import torch
 import torch.distributed as dist
@@ -17,13 +15,12 @@ from data.data_gen_stream import DistributedDataGenerator
 from data.data_gen_task import TaskDataGenerator
 from models import model_from_spec
 from tools.checkpoint import model_from_checkpoint, save_checkpoint
-from tools.model_report import build_report, format_report_text
 from tools.master_logger import MasterLogger
+from tools.model_report import build_report, format_report_text
 from training.eval import Evaluator
 from training.hparams import Hyperparameters
 from training.optim import Muon, get_lr_scale, build_optimizers_from_cfg, get_num_window_blocks, set_full_windows
 from training.progress import ProgressMeter
-
 
 WINDOW_BLOCK_SIZE = 128
 logger = MasterLogger
@@ -132,8 +129,8 @@ class CompiledRuntime:
             self.world_size = int(os.environ.get("WORLD_SIZE"))
             self.rank = int(os.environ.get("RANK"))
             self.local_rank = int(os.environ.get("LOCAL_RANK"))
-        except Exception as e:
-            # explicitly log as opposed to get(,default)
+        except Exception:
+            # force an exception to enable logging as opposed to get(,default)
             logger.info(f"Torchrun vars not set. Assuming standalone.")
             self.world_size = 1
             self.rank = 0
@@ -203,6 +200,7 @@ class CompiledRuntime:
         try:
             self.model.load_state_dict(self._initial_state, strict=True)
         except Exception as e:
+            logger.info(f"Failed to load state dict. Retrying with adjusted weight prefixes.: {e}")
             # uncompiled models expect weight names without a prefix
             from tools.checkpoint import remove_prefix
             _sd = remove_prefix(self._initial_state)
@@ -363,7 +361,7 @@ class TrainingSession:
         except Exception:
             logger.warning(f"Failed to add lr_scale suffix to wandb_run_name: {self.args.wandb_run_name}")
 
-    def _build_data_and_evals(self) -> Tuple[Iterable, List[Tuple[str, Evaluator, int]], Optional[int]]:
+    def _build_data_and_evals(self) -> Tuple[Iterator, List[Tuple[str, Evaluator, int]], Optional[int]]:
         args = self.args
         is_task = (args.train_mode == "task")
         world_size = self.rt.world_size
@@ -587,7 +585,6 @@ class TrainingSession:
         )
 
         # Tracking for eval stats and ETA
-        last_val_loss = None
         ema_dloss_per_token = math.inf
         training_time_ms = 0.0
         best_val = float("inf")
