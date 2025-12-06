@@ -61,8 +61,8 @@ def _make_modules(kimi_impl, kimi_ref_cls, *, dim=64, num_heads=4, head_dim=16, 
         conv_bias=False,
         layer_idx=0,
     )
-    impl.eval(,
-    ref.eval(,
+    impl.eval()
+    ref.eval()
     return impl, ref
 
 def _make_inputs(model, T, device, dtype=torch.bfloat16):
@@ -136,7 +136,7 @@ def test_forward_shapes_and_dtypes(device, kimi_impl):
         dim=96, num_heads=6, max_seq_len=256, head_dim=16, expand_v=1.0,
         mode="chunk", use_short_conv=True, allow_neg_eigval=False, conv_size=4, conv_bias=False, layer_idx=0
     ).to(device)
-    m.eval(,
+    m.eval()
 
     x, ve, sa_l = _make_inputs(m, T=33, device=device)
     with torch.no_grad():
@@ -152,7 +152,7 @@ def test_masking_unpad_matches_trimmed_forward(device, kimi_impl):
         dim=64, num_heads=4, max_seq_len=512, head_dim=16, expand_v=1.0,
         mode="chunk", use_short_conv=True, allow_neg_eigval=False, conv_size=4, conv_bias=False, layer_idx=0
     ).to(device)
-    m.eval(,
+    m.eval()
 
     T = 40
     valid = 29
@@ -173,7 +173,7 @@ def test_streaming_step_matches_full_forward(device, kimi_impl):
         dim=64, num_heads=4, max_seq_len=1024, head_dim=16, expand_v=1.0,
         mode="chunk", use_short_conv=True, allow_neg_eigval=False, conv_size=4, conv_bias=False, layer_idx=0
     ).to(device)
-    m.eval(,
+    m.eval()
 
     T = 48
     x, ve, sa_l = _make_inputs(m, T=T, device=device)
@@ -198,7 +198,7 @@ def test_prefill_then_step_matches_full_forward(device, kimi_impl):
         dim=80, num_heads=5, max_seq_len=1024, head_dim=16, expand_v=1.0,
         mode="chunk", use_short_conv=True, allow_neg_eigval=False, conv_size=4, conv_bias=False, layer_idx=0
     ).to(device)
-    m.eval(,
+    m.eval()
 
     T = 64
     split = 17
