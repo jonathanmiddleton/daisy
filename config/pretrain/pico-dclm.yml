@@ -43,7 +43,7 @@ val_shards:
     sequence_length: 65_536
 val_loss_every_tokens:    32_768_000
 # Checkpoints
-checkpoint_warmup_tokens:   500_000_000
+checkpoint_warmup_tokens:   1
 checkpoint_per_n_tokens:     1
 save_checkpoint: true
 # Model Definition
