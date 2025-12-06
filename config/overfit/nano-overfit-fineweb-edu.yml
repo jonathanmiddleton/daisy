@@ -3,7 +3,9 @@ wandb_log: true
 wandb_project: 'daisy'
 wandb_run_name: 'nano-overfit-fineweb-edu'
 # Torch config
-torch.coordinate_descent_tuning: false
+torch.coordinate_descent_tuning: true
+# Random seed
+seed: 1337
 # Pretraining configuration
 train_shards: "data/overfit/edu_fineweb_overfit_1M.bin"
 target_tokens: 1_000_000_000
