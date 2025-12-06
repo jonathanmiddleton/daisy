@@ -63,7 +63,7 @@ class Generator:
         if eos_token_id is None:
             eos_token_id = getattr(model, "eos_token_id", None)
         assert eos_token_id is not None
-        self.model = model.eval(,
+        self.model = model.eval()
         self.device = next(model.parameters()).device if device is None else device
         self.dtype = dtype
         assert self.device is not None
