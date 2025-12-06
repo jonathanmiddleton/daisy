@@ -538,6 +538,7 @@ def build_optimizers_from_cfg(
     required_group_names = set(param_groups_by_name.keys())
     frozen_groups = frozen_groups or []
     for name in frozen_groups:
+        logger.info(f"Freezing group '{name}' for all optimizers")
         if name not in required_group_names:
             raise ValueError(f"Frozen group '{name}' is not present in the model")
         for p in param_groups_by_name[name]:
