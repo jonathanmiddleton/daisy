@@ -181,7 +181,7 @@ def load_hparams_from_yaml(config_path: str, *, validate: bool = True) -> Hyperp
         tvs = cfg_dict.get("task_val_shards", [])
         norm_task_list: list[dict] = []
         if not isinstance(tvs, list):
-            raise ValueError("task_val_shards must be a list of objects with keys: path (str), split (str, optional), type (str, optional), target_tokens (int)")
+            raise ValueError("task_val_shards must be a list of objects with keys: path (str), split (str, optional), type (str, optional), target_tokens (int), sequence_length (int)")
         for i, item in enumerate(tvs, start=1):
             if not isinstance(item, dict):
                 raise ValueError(f"task_val_shards[{i}] must be a mapping")
@@ -189,6 +189,7 @@ def load_hparams_from_yaml(config_path: str, *, validate: bool = True) -> Hyperp
             vtype = item.get("type") or f"task_val{i}"
             split = item.get("split", "val")
             t_tokens = item.get("target_tokens")
+            seq_len = item.get("sequence_length")
             if not isinstance(path, str) or not path:
                 raise ValueError(f"task_val_shards[{i}].path must be a non-empty string")
             if not isinstance(split, str) or not split:
@@ -199,11 +200,18 @@ def load_hparams_from_yaml(config_path: str, *, validate: bool = True) -> Hyperp
                     raise ValueError
             except Exception:
                 raise ValueError(f"task_val_shards[{i}].target_tokens must be a positive integer")
+            try:
+                seq_len = int(seq_len)
+                if seq_len <= 0:
+                    raise ValueError
+            except Exception:
+                raise ValueError(f"task_val_shards[{i}].sequence_length must be a positive integer")
             norm_task_list.append({
                 "type": vtype,
                 "path": path,
                 "split": split,
                 "target_tokens": t_tokens,
+                "sequence_length": seq_len,
             })
         cfg_dict["task_val_shards"] = norm_task_list
 
