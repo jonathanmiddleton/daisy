@@ -4,7 +4,7 @@ wandb_project: 'daisy'
 wandb_run_name: 'pico-fineweb-edu'
 wandb_group: 'pico-fineweb-edu'
 # Torch config
-torch.coordinate_descent_tuning: false
+torch.coordinate_descent_tuning: true
 # Pretraining configuration
 train_shards: "data/fineweb-edu/edu_fineweb_train_*.bin"
 target_tokens: 1_000_000_000
