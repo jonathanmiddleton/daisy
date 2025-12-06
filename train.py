@@ -1,5 +1,4 @@
 import argparse
-import dataclasses
 import copy
 import os
 import sys
@@ -131,8 +130,7 @@ def main(argv: List[str] | None = None) -> int:
         for _, a in group:
             a.max_seq_len = max(int(getattr(a, "max_seq_len", a.training_sequence_length)), group_max)
 
-        dynamic = any(a.train_mode == "task" for _, a in group)
-        runtime = CompiledRuntime(group[0][1], dynamic=dynamic)
+        runtime = CompiledRuntime(group[0][1])
         try:
             for run_id, a in group:
                 session = TrainingSession(runtime, a, run_id)

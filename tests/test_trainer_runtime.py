@@ -62,16 +62,16 @@ def test_compute_group_max_seq_len_and_partitioning():
 
     # Compile key equality for runtime-only changes
     device_type = "cpu"
-    k1 = trainer_mod.derive_compile_key(a1, device_type=device_type, world_size=1, dynamic=False)
+    k1 = trainer_mod.derive_compile_key(a1, device_type=device_type, world_size=1)
     a1_lr = dataclasses.replace(a1)
     a1_lr.lr_scale = 0.5
-    k1b = trainer_mod.derive_compile_key(a1_lr, device_type=device_type, world_size=1, dynamic=False)
+    k1b = trainer_mod.derive_compile_key(a1_lr, device_type=device_type, world_size=1)
     assert k1 == k1b, "Changing lr_scale must not alter compile key"
 
     # Changing architecture must change compile key
     a_arch = dataclasses.replace(a1)
     a_arch.num_layers = a1.num_layers + 2
-    k2 = trainer_mod.derive_compile_key(a_arch, device_type=device_type, world_size=1, dynamic=False)
+    k2 = trainer_mod.derive_compile_key(a_arch, device_type=device_type, world_size=1)
     assert k1 != k2
 
     # Partition groups should put a1 and a1_lr together, and a_arch separate
@@ -98,7 +98,7 @@ def test_compiled_runtime_reset_restores_initial_state(monkeypatch):
     args.training_sequence_length = 128
     args.max_seq_len = 128
 
-    rt = trainer_mod.CompiledRuntime(args, dynamic=False)
+    rt = trainer_mod.CompiledRuntime(args)
     try:
         init_state = copy.deepcopy(rt.model.state_dict())
         # Mutate weights

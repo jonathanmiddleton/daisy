@@ -1,11 +1,12 @@
-
-
-from typing import Any, Dict, Type
+from typing import Any, Type
 from importlib import import_module
 from dataclasses import is_dataclass, asdict as dc_asdict, fields as dc_fields, asdict
 from torch import nn
 from model_specs import load_model_spec, ModelSpec, override_model_spec
 
+def is_flex_available():
+    import torch
+    return torch.cuda.is_available()
 
 def _coerce_module_path(path: str):
     if path == "models.gpt2.gpt_core":
@@ -34,7 +35,7 @@ def get_model_class(model_class: str) -> Type[nn.Module]:
 
 
 
-def model_from_spec(spec_or_cfg: str | dict | ModelSpec | Any, device: str, overrides: dict = None, dynamic_shapes: bool = False) -> nn.Module:
+def model_from_spec(spec_or_cfg: str | dict | ModelSpec | Any, device: str, overrides: dict = None) -> nn.Module:
     # Normalize to ModelSpec for validation of architecture fields
     spec: ModelSpec
 
@@ -88,8 +89,7 @@ def model_from_spec(spec_or_cfg: str | dict | ModelSpec | Any, device: str, over
         use_value_embeddings=use_value_embeddings,
         use_tied_embeddings=use_tied_embeddings,
         attn_all_layers = attn_all_layers,
-        attn_impl=attn_impl,
-        dynamic_shapes = dynamic_shapes
+        attn_impl=attn_impl
     ).to(device)
     return model
 
@@ -97,4 +97,5 @@ def model_from_spec(spec_or_cfg: str | dict | ModelSpec | Any, device: str, over
 __all__ = [
     "get_model_class",
     "model_from_spec",
+    "is_flex_available",
 ]

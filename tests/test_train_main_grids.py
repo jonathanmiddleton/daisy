@@ -1,5 +1,3 @@
-import os
-
 import pytest
 
 
@@ -11,9 +9,8 @@ def test_parse_grid_and_inprocess_runs(monkeypatch):
     runs = []
 
     class DummyRuntime:
-        def __init__(self, args_for_group, dynamic: bool):
+        def __init__(self, args_for_group):
             created_runtimes.append({
-                "dynamic": dynamic,
                 "args": args_for_group,
             })
 

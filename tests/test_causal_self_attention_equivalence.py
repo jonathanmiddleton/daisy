@@ -1,9 +1,8 @@
-
 import pytest
 import torch
-from torch.nn.attention.flex_attention import create_block_mask, BlockMask
+from torch.nn.attention.flex_attention import create_block_mask
 
-from models.daisy.attention import CausalSelfAttention, is_flex_available
+from models.daisy.attention import CausalSelfAttention
 
 
 def _make_block_mask(T: int, H: int, W: int, device: torch.device):
@@ -23,9 +22,9 @@ def test_causal_self_attention_forward_equals_step(T, W,  monkeypatch):
         dim, max_seq_len = H * D, 256
 
         dtype = torch.bfloat16
-        x_t = torch.ones(T, dtype=torch.int, device=device) #pseudo-tokens
+        # x_t = torch.ones(T, dtype=torch.int, device=device) #pseudo-tokens
         x = torch.randn(1, T, dim, device=device, dtype=dtype) #pseudo-embedding
-        lambdas = torch.tensor([1.0, 0.5], device=device, dtype=dtype)
+        # lambdas = torch.tensor([1.0, 0.5], device=device, dtype=dtype)
         ve_full = torch.randn(1, T, H, D, device=device, dtype=dtype)
 
         if torch.cuda.is_available():

@@ -5,16 +5,13 @@ import torch
 from torch import nn, Tensor
 from torch.nn.attention.flex_attention import BlockMask, flex_attention
 from torch.nn import functional as F
+
+from models import is_flex_available
 from models.daisy.functional import norm, init_linear
 from tools.master_logger import MasterLogger
 logger = MasterLogger
 
 WINDOW_BLOCK_SIZE = 128
-
-def is_flex_available(enable_for_cpu: bool = False, dynamic_shapes: bool = False):
-    # FlexAttention is supported only on cuda (limited on CPU)
-    return (not dynamic_shapes) and (torch.cuda.is_available() or enable_for_cpu)
-
 
 def _apply_rope(x_BTHD, cos, sin):
     x1, x2 = x_BTHD.to(dtype=torch.float32).chunk(2, dim=-1)
@@ -74,13 +71,12 @@ class Rotary(nn.Module):
 
 
 class CausalSelfAttention(nn.Module):
-    def __init__(self, dim: int, num_heads: int, head_dim, dynamic_shapes: bool = False, receives_ve: bool = False, layer_idx: Optional[int] = None):
+    def __init__(self, dim: int, num_heads: int, head_dim, receives_ve: bool = False, layer_idx: Optional[int] = None):
         super().__init__()
         torch._assert(dim % num_heads == 0, "dim must be divisible by num_heads")
         self.num_heads = num_heads
         self.head_dim: int = head_dim
         self.m_dim = dim
-        self.dynamic_shapes = dynamic_shapes
         # merged QKV weights: suggested by many, implemented by @fernbear.bsky.social, and further improved by @YouJiacheng
         # https://x.com/hi_tysam/status/1879699187107033311
         self.qkvo_w = nn.Parameter(init_linear(torch.empty(4, self.m_dim, self.m_dim)).bfloat16())
@@ -112,20 +108,6 @@ class CausalSelfAttention(nn.Module):
             self.g_ve = None
 
         self.debug_logging = logger.isDebugEnabled() # quasi-static compile-friendly boolean for logging
-
-# TODO can't create a new Module after compile
-    # def maybeResizeRotary(self, x: Tensor):
-    #     T = x.size(-2)
-    #     if self.debug_logging: logger.debug(f"maybeResizeRotary newSize={T} Rotary capacity= {self.rotary._max_seq_len}")
-    #     if T <= self.rotary._max_seq_len: return
-    #
-    #     if self.debug_logging: logger.debug(f"Resizing Rotary to {T} positions.")
-    #     from math import pow
-    #     def next_power_of_2(s: int):
-    #         pows = [int(pow(2, n)) for n in range(19)]
-    #         return next(n for n in pows if n > s)
-    #     self.rotary = Rotary(self.head_dim, next_power_of_2(T))
-    #     self.rotary.to(x.device)
 
     def reset_history(self):
         self.last_q = None
@@ -180,8 +162,8 @@ class CausalSelfAttention(nn.Module):
         return y
 
     def forward(self, x: torch.Tensor, ve: Optional[torch.Tensor],  block_mask: Optional[BlockMask] = None, attn_mask: Optional[Tensor] = None):
-        if self.debug_logging: logger.debug(f"forward(x.shape={x.shape}), self.dynamic_shapes={self.dynamic_shapes}, block_mask={block_mask is not None}, attn_mask={attn_mask is not None}")
-        if is_flex_available(dynamic_shapes=self.dynamic_shapes) and block_mask is not None:
+        if self.debug_logging: logger.debug(f"forward(x.shape={x.shape}), block_mask={block_mask is not None}, attn_mask={attn_mask is not None}")
+        if is_flex_available() and block_mask is not None:
             if self.debug_logging: logger.debug(f"Using FlexAttention with block_mask.")
             return self.forward_flex(x, ve, block_mask=block_mask)
         else:

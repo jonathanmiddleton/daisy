@@ -136,7 +136,7 @@ curl -u user:pass \
   "created": 1730234,
   "model": "daisy",
   "output": [{"type":"message","role":"assistant","content":[{"type":"output_text","text":"..."}]}],
-  "usage": {"prompt_tokens":N,"completion_tokens":M,"total_tokens":N+M},
+  "usage": {"prompt_tokens":100,"completion_tokens":123,"total_tokens":223},
   "meta": {"prefill_ms":123, "gen_ms":456},
   "session_id": "sess_..."
 }

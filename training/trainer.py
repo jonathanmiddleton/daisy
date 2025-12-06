@@ -42,10 +42,9 @@ class CompileKey:
     device_type: str
     world_size: int
     compiled_backend: str
-    dynamic: bool
 
 
-def derive_compile_key(args: Hyperparameters, *, device_type: str, world_size: int, dynamic: bool) -> CompileKey:
+def derive_compile_key(args: Hyperparameters, *, device_type: str, world_size: int) -> CompileKey:
     backend = 'inductor' if device_type == 'cuda' else 'aot_eager'
     return CompileKey(
         model_spec=args.model_spec,
@@ -58,30 +57,27 @@ def derive_compile_key(args: Hyperparameters, *, device_type: str, world_size: i
         head_dim=int(args.head_dim),
         attention_window_len=int(args.attention_window_len),
         max_seq_len=int(getattr(args, "max_seq_len", args.training_sequence_length)),
-        torch_coordinate_descent_tuning=bool(getattr(args, "torch_coordinate_descent_tuning", False)),
+        torch_coordinate_descent_tuning=bool(args.torch_coordinate_descent_tuning),
         device_type=device_type,
         world_size=world_size,
         compiled_backend=backend,
-        dynamic=bool(dynamic),
     )
 
 
-def _maybe_compile(model: nn.Module, *, device_type: str, dynamic: bool, is_task: bool) -> nn.Module:
+def _maybe_compile(model: nn.Module, *, device_type: str, torch_coordinate_descent_tuning: bool) -> nn.Module:
     disable_compile = os.environ.get("TORCH_DISABLE_MODEL_COMPILE", "0") == "1"
     if disable_compile:
         logger.info(f"Model compilation disabled: TORCH_DISABLE_MODEL_COMPILE={disable_compile}")
         return model
     backend = 'inductor' if device_type == 'cuda' else 'aot_eager'
-    use_dynamic = bool(dynamic or is_task)
-    if is_task:
-        torch._dynamo.config.force_parameter_static_shapes = False
-    torch._inductor.config.coordinate_descent_tuning = bool(
-        os.environ.get("TORCH_COORDINATE_DESCENT_TUNING", "0") == "1" or False
-    )
+    #noinspection PyProtectedMember
+    torch._inductor.config.coordinate_descent_tuning = torch_coordinate_descent_tuning
+    # noinspection PyProtectedMember
     torch._dynamo.config.compiled_autograd = True
+    # noinspection PyProtectedMember
     torch._dynamo.config.error_on_nested_fx_trace = False
-    logger.info(f"Compiling model (dynamic={use_dynamic}) (backend={backend}). This may take several minutes and occurs in phases during the initial eval and forward.")
-    return torch.compile(model, dynamic=use_dynamic, backend=backend)
+    logger.info(f"Compiling model (backend={backend}) (torch_coordinate_descent_tuning={torch_coordinate_descent_tuning}. This may take several minutes and occurs in phases during the initial eval and forward.")
+    return torch.compile(model, dynamic=False, backend=backend)
 
 
 def _maybe_reset_peak_memory_stats(device_type: str):
@@ -98,7 +94,7 @@ def _get_max_memory_allocated(device_type: str) -> Optional[int]:
 class CompiledRuntime:
     """Persistent per-compile-key runtime holding device/DDP, compiled model and initial weights."""
 
-    def __init__(self, args_for_group: Hyperparameters, *, dynamic: bool):
+    def __init__(self, args_for_group: Hyperparameters):
         os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
         # Apply configurable RNG seed
         try:
@@ -163,11 +159,9 @@ class CompiledRuntime:
         # Configure attention windows mode globally
         set_full_windows(args_for_group.full_windows)
 
-        is_task = (args_for_group.train_mode == "task")
-
         # Initialize model
         if args_for_group.init_checkpoint:
-            model, _ = model_from_checkpoint(args_for_group.init_checkpoint, device=self.device, dynamic_shapes=is_task)
+            model, _ = model_from_checkpoint(args_for_group.init_checkpoint, device=self.device)
             logger.info("Rehydrated model from checkpoint.")
         else:
             # Make sure max_seq_len is large enough (group-level)
@@ -190,7 +184,7 @@ class CompiledRuntime:
         self._initial_state = restore_prefix(_sd)
 
         # Compile once
-        self.model = _maybe_compile(self.model, device_type=self.device.type, dynamic=dynamic, is_task=is_task)
+        self.model = _maybe_compile(self.model, device_type=self.device.type, torch_coordinate_descent_tuning=args_for_group.torch_coordinate_descent_tuning)
 
         report = build_report(self.model)
         logger.info(f"Initial model report:\n{format_report_text(report)}")
@@ -373,6 +367,7 @@ class TrainingSession:
 
         val_evals: list[tuple[str, Evaluator, int]] = []
 
+        tokens_per_step = world_size * args.training_sequence_length
         if not is_task:
             train_ddg = DistributedDataGenerator(
                 filename_pattern=args.train_shards,
@@ -382,15 +377,12 @@ class TrainingSession:
                 start_shard=begin_shard,
                 device=device_type,
             )
-            tokens_per_step = world_size * args.training_sequence_length
+
         else:
-            pad_to_multiple = WINDOW_BLOCK_SIZE if device_type == "cuda" else 1
             train_ddg = TaskDataGenerator(root=args.task_train_root, split=getattr(args, "task_train_split", "train"),
                                           sequence_length=args.training_sequence_length, world_size=world_size,
                                           rank=rank, seed=int(getattr(args, "task_seed", 1337)), device=device_type,
                                           start_shard=begin_shard)
-            # For Task SFT we use dynamic token counting
-            tokens_per_step = None
 
             task_val_shards = getattr(args, "task_val_shards", []) or []
             for v in task_val_shards:
@@ -594,31 +586,11 @@ class TrainingSession:
 
             # TRAIN
             ga_steps = max(1, int(args.grad_acc_steps))
-            total_train_loss = 0.0
-            tokens_this_step = 0
+            total_train_loss = torch.tensor(0.0, device=self.rt.device)
             for micro_step in range(ga_steps):
                 if logger.isDebugEnabled(): logger.debug(f"micro_step={micro_step} in ga_steps={ga_steps}")
 
                 inputs, targets = next(train_ddg)
-                if logger.isDebugEnabled(): logger.debug(f"inputs.shape={inputs.shape}, targets.shape={targets.shape}")
-
-                seq_len = inputs.size(-1)
-                if args.train_mode == "task":
-                    skip_count = 0
-                    while seq_len > int(args.training_sequence_length):
-                        # attempt to recover by getting a new batch
-                        skip_count += 1
-                        if skip_count > 100:
-                            # significantly outside expectations - either the data must be cleansed or the model configuration is improper
-                            logger.error(f"Fatal: failed to find inputs with seq_len <= {int(args.training_sequence_length)} after 100 attempts.")
-                            sys.exit(1)
-                        if logger.isDebugEnabled(): logger.debug(f"seq_len={seq_len} > int(args.training_sequence_length)={int(args.training_sequence_length)}")
-                        inputs, targets = next(train_ddg)
-                        seq_len = inputs.size(-1)
-
-                tokens_this_step += int(seq_len) # TODO consider returning count from data generator to avoid sync
-                assert tokens_this_step != 0
-                if logger.isDebugEnabled(): logger.debug(f"step={step} cumulative tokens_microstep={tokens_this_step}")
 
                 n_blocks = get_num_window_blocks(
                     progress.s,
@@ -629,14 +601,12 @@ class TrainingSession:
                 with torch.autocast(self.rt.device.type, dtype=torch.bfloat16):
                     loss = self.rt.model(inputs, n_blocks, targets)
 
-                loss_to_backward = loss / ga_steps
+                loss = loss / ga_steps
                 if self.rt.use_distributed:
                     self.rt.model.require_backward_grad_sync = micro_step == ga_steps - 1
-                loss_to_backward.backward()
-                total_train_loss += float(loss.item()) # TODO reduce syncs by reporting only every N steps
+                loss.backward()
+                total_train_loss += loss
 
-            if logger.isDebugEnabled(): logger.debug(f"step={step} tokens_this_step={tokens_this_step} total_train_loss={total_train_loss}")
-            if logger.isDebugEnabled() and self.rt.use_distributed: logger.debug(f"start opt2futures: dist.all_reduce()")
             opt2futures = {
                 opt: (
                     [
@@ -649,7 +619,6 @@ class TrainingSession:
                 )
                 for opt, params in opt2params.items()
             }
-            if logger.isDebugEnabled() and self.rt.use_distributed: logger.debug(f"len(opt2futures)={len([g for g in opt2futures.values() if g is not None])}")
 
             s = progress.s
             lr_scale_base = get_lr_scale(args.learning_rate_schedule, s, args.cooldown_frac)
@@ -660,7 +629,6 @@ class TrainingSession:
                     continue
                 for group in opt.param_groups:
                     group["lr"] = group["initial_lr"] * lr_scale
-                    # if logger.isDebugEnabled(): logger.debug(f"set lr={group['lr']} for opt={opt}")
 
             for opt in optimizers:
                 if isinstance(opt, Muon):
@@ -676,33 +644,18 @@ class TrainingSession:
                 opt.step()
             self.rt.model.zero_grad(set_to_none=True)
 
-            if args.train_mode == "task":
-                # task token counts vary across each batch
-                if self.rt.use_distributed:
-                    t = torch.tensor(tokens_this_step, device=self.rt.device, dtype=torch.int32)
-                    dist.all_reduce(t, op=dist.ReduceOp.SUM)
-                    global_step_tokens = int(t.item())
-                else:
-                    global_step_tokens = tokens_this_step
-            else:
-                # pretraining token counts are constant across each batch so we can infer global_step_tokens
-                global_step_tokens = tokens_this_step * self.rt.world_size
+            progress.update(tokens_per_step)
+            if logger.isDebugEnabled(): logger.debug(f"update {tokens_per_step} -> progress.tokens_processed={progress.tokens_processed}")
 
-            progress.update(global_step_tokens)
-            if logger.isDebugEnabled(): logger.debug(f"update {global_step_tokens} -> progress.tokens_processed={progress.tokens_processed}")
-
-            step += 1
-
-            train_loss_est = total_train_loss / ga_steps
+            train_loss  = total_train_loss / ga_steps
 
             if self.rt.use_distributed:
-                if logger.isDebugEnabled(): logger.debug(f"Starting dist.all_reduce() -> train_loss_est={train_loss_est}")
-                loss_tensor = torch.tensor(train_loss_est, device=self.rt.device)
-                dist.all_reduce(loss_tensor, op=dist.ReduceOp.AVG)
-                train_loss_est = loss_tensor.item()
-                if logger.isDebugEnabled(): logger.debug(f"Finished dist.all_reduce() -> train_loss_est={train_loss_est}")
+                if logger.isDebugEnabled(): logger.debug(f"Starting dist.all_reduce() -> train_loss_est={train_loss.item()}")
+                dist.all_reduce(train_loss, op=dist.ReduceOp.AVG)
+                if logger.isDebugEnabled(): logger.debug(f"Finished dist.all_reduce() -> train_loss_est={train_loss.item()}")
 
             approx_training_time_ms = training_time_ms + 1000 * (time.perf_counter() - t0)
+            step += 1
             if step == 9:
                 warmup_end = approx_training_time_ms
             avg_step = (
@@ -712,15 +665,16 @@ class TrainingSession:
             )
 
             if progress.should_log():
+                loss_f = train_loss.item()
                 logger.info(
-                    f"step:{step} train_loss:{train_loss_est:.4f} tokens:{progress.tokens_processed:,}/{progress.target_tokens:,} "
+                    f"step:{step} train_loss:{loss_f:.4f} tokens:{progress.tokens_processed:,}/{progress.target_tokens:,} "
                     f"(s={progress.s:.4f}) train_time:{approx_training_time_ms:,.0f}ms {avg_step} "
                     f"lr_scale:{lr_scale:.4f} (base:{lr_scale_base:.4f} floor:{float(getattr(args, 'learning_rate_floor', 0.0)):.4f})"
                 )
                 self._log_wandb(
                     {
-                        "train/loss": train_loss_est,
-                        "train/ppl": math.exp(train_loss_est) if train_loss_est < 20 else float("inf"),
+                        "train/loss": loss_f,
+                        "train/ppl": math.exp(loss_f) if loss_f < 20 else float("inf"),
                         "tokens": progress.tokens_processed,
                         "s": progress.s,
                         "lr_scale": lr_scale,
@@ -779,8 +733,7 @@ def compute_group_max_seq_len(arg_list: List[Hyperparameters]) -> int:
 def partition_runs_by_compile_key(run_args: List[Tuple[int, Hyperparameters]], *, device_type: str, world_size: int) -> Dict[CompileKey, List[Tuple[int, Hyperparameters]]]:
     groups: Dict[CompileKey, List[Tuple[int, Hyperparameters]]] = {}
     for run_id, a in run_args:
-        dynamic = (a.train_mode == "task")
-        ck = derive_compile_key(a, device_type=device_type, world_size=world_size, dynamic=dynamic)
+        ck = derive_compile_key(a, device_type=device_type, world_size=world_size)
         groups.setdefault(ck, []).append((run_id, a))
     return groups
 

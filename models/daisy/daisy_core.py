@@ -1,16 +1,17 @@
 import os
-from functools import lru_cache
 from math import floor, log2, ceil
-from typing import Any, Optional, List, Dict
+from typing import Optional, List, Dict
 
 import torch
-from torch import nn, Tensor, SymInt
 import torch.nn.functional as F
+from torch import nn, Tensor
 from torch.nn.attention.flex_attention import BlockMask
 
+from models import is_flex_available
 from models.daisy.block import Block
 from models.daisy.functional import norm
 from tools.master_logger import MasterLogger
+
 logger = MasterLogger
 
 WINDOW_BLOCK_SIZE = 128
@@ -108,7 +109,7 @@ class DaisyCore(nn.Module):
     def __init__(self, vocab_size: int, num_layers: int, num_heads: int, model_dim: int, max_seq_len: int,
                  head_dim: int, window_size: int = 2048, eos_token_id: int | None = None, desc: dict | None = None,
                  use_value_embeddings: bool = True, use_tied_embeddings: bool = False, attn_all_layers: bool = False,
-                 attn_impl: str = 'standard', dynamic_shapes: bool = False):
+                 attn_impl: str = 'standard'):
         super().__init__()
         if eos_token_id is None:
             raise ValueError("eos_token_id is required.")
@@ -135,7 +136,6 @@ class DaisyCore(nn.Module):
             return {i: j for i, j in m.items() if 0 <= j < i < L}
 
         self.attn_impl_ids = DaisyCore.AttnImplIDs
-        self.dynamic_shapes = dynamic_shapes
 
         self.skip_map = _get_skip_map(num_layers)
         self.eos_token_id = int(eos_token_id)
@@ -157,7 +157,7 @@ class DaisyCore(nn.Module):
 
         self.attn_impl_id = self.attn_impl_ids.get_attn_impl_id(attn_impl)
         self.blocks = nn.ModuleList(
-            [Block(model_dim, num_heads, max_seq_len, i, head_dim, i in self.attn_layers, attn_impl, dynamic_shapes=dynamic_shapes, receives_ve=(i in self.ve_layers)) for i in range(num_layers)])
+            [Block(model_dim, num_heads, max_seq_len, i, head_dim, i in self.attn_layers, attn_impl, receives_ve=(i in self.ve_layers)) for i in range(num_layers)])
         if use_tied_embeddings:
             nn.init.normal_(self.embed.weight, mean=0.0, std=0.02)
             self.lm_head_w = self.embed.weight
@@ -244,11 +244,10 @@ class DaisyCore(nn.Module):
 
         skip_map = self.skip_map
         skip_weights = self.skip_weights
-        # if self.DEBUG_LOG_ENABLED: logger.debug(f"L: {L}, sliding_window_num_blocks: {sliding_window_num_blocks}, skip_map: {skip_map}, skip_weights: {skip_weights}")
 
         skip_connections = []
 
-        if input_seq.device.type == "cuda" and not self.dynamic_shapes: #  FlexAttention if supported unless dynamic_shape support is required
+        if is_flex_available():
             if self.debug_logging: logger.debug("Building blockmasks for FlexAttention")
             block_masks = self.create_blockmasks(input_seq, sliding_window_num_blocks, L=L)
             attn_mask = None
@@ -280,7 +279,7 @@ class DaisyCore(nn.Module):
             logits: Tensor = F.linear(x.flatten(end_dim=1).bfloat16(), self.lm_head_w.bfloat16()).float()
             return logits
         else:
-            loss = 0
+            loss = torch.zeros([], dtype=torch.float32, device=x.device)
             for i in range(loss_chunks):
                 torch._assert(input_seq.numel() % loss_chunks == 0,
                               f"input_seq must be divisible by {loss_chunks} when not in training")
@@ -288,7 +287,6 @@ class DaisyCore(nn.Module):
                                           self.lm_head_w.bfloat16()).float()
                 logits = 15 * logits * torch.rsqrt(logits.square() + 225)
                 chunk = target_seq.chunk(loss_chunks)[i]
-                loss: Tensor
                 loss += F.cross_entropy(logits, chunk) / loss_chunks
             if self.DEBUG_LOG_ENABLED: logger.debug(f"loss: {loss.item():.4f}")
             return loss
@@ -299,8 +297,6 @@ class DaisyCore(nn.Module):
         token_id = token_id.view(B, T)
         x0 = norm(self.embed(token_id))
         L = len(self.blocks)
-
-        ve = self.compute_value_embeddings(token_id)
 
         skip_map = self.skip_map
         skip_weights = self.skip_weights
@@ -329,13 +325,6 @@ class DaisyCore(nn.Module):
     def prefill(self, input_seq: Tensor, debug: bool = False): #TODO   merge prefill/forward
         assert input_seq.ndim == 2
         B, T = input_seq.shape
-        h = None
-        d = None
-        for b in self.blocks:
-            if getattr(b, "attn", None) is not None:
-                h = b.attn.num_heads
-                d = b.attn.head_dim
-                break
         L = len(self.blocks)
 
         x = norm(self.embed(input_seq))

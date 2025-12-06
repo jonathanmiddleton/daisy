@@ -1,8 +1,8 @@
 from pathlib import Path
-from typing import Any, Dict
-from .model_spec import ModelSpec, build_model_dict
 
 import yaml
+
+from .model_spec import ModelSpec, build_model_dict
 
 
 def resolve_model_spec_path(name_or_path: str) -> Path:
@@ -74,5 +74,6 @@ def load_model_spec(name_or_path: str, overrides: dict | None = None) -> ModelSp
 __all__ = [
     "resolve_model_spec_path",
     "load_model_spec",
-    "ModelSpec"
+    "ModelSpec",
+    "override_model_spec"
 ]
