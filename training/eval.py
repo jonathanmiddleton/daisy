@@ -160,7 +160,7 @@ class Evaluator:
         """
         The underlying generator is assumed to yield (inputs, targets) pairs
         that are directly consumable by the model, as in training.
-        
+
         Returns a dict with:
             - 'val_loss': average loss over eval steps
             - 'val_acc': always None (placeholder for compatibility)
@@ -190,7 +190,7 @@ class Evaluator:
                                                      attention_window_len=self._attn_window_len,
                                                      window_block_size=WINDOW_BLOCK_SIZE).to(device)
                     if logger.isDebugEnabled(): logger.debug(f"[eval] n_blocks={n_blocks}")
-                    loss = model(x, n_blocks, y) if self._val_type == 'pretraining' else model(x, n_blocks, y, loss_chunks=1)
+                    loss = model(x, n_blocks, y) if self._val_type == 'pretraining' else model(x, n_blocks, y)
 
             # Optional per-sample debug logging
             self._log_sample(step_idx, loss, x, y)

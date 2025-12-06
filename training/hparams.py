@@ -158,16 +158,16 @@ def load_hparams_from_yaml(config_path: str, *, validate: bool = True) -> Hyperp
                 raise ValueError(f"val_shards[{i}].type must be a non-empty string when provided")
             try:
                 t_tokens = int(t_tokens)
-                if t_tokens <= 0:
+                if t_tokens <= 0 or t_tokens % 4 != 0:
                     raise ValueError
             except Exception:
-                raise ValueError(f"val_shards[{i}].target_tokens must be a positive integer")
+                raise ValueError(f"val_shards[{i}].target_tokens must be a positive integer divisible by 4.")
             try:
                 seq_len = int(seq_len)
-                if seq_len <= 0:
+                if seq_len <= 0 or seq_len % 4 != 0:
                     raise ValueError
             except Exception:
-                raise ValueError(f"val_shards[{i}].sequence_length must be a positive integer")
+                raise ValueError(f"val_shards[{i}].sequence_length must be a positive integer divisible by 4.")
             norm_list.append({
                 "type": vtype,
                 "path": path,
@@ -196,16 +196,16 @@ def load_hparams_from_yaml(config_path: str, *, validate: bool = True) -> Hyperp
                 raise ValueError(f"task_val_shards[{i}].split must be a non-empty string when provided")
             try:
                 t_tokens = int(t_tokens)
-                if t_tokens <= 0:
+                if t_tokens <= 0 or t_tokens % 4 != 0:
                     raise ValueError
             except Exception:
-                raise ValueError(f"task_val_shards[{i}].target_tokens must be a positive integer")
+                raise ValueError(f"task_val_shards[{i}].target_tokens must be a positive integer divisible by 4.")
             try:
                 seq_len = int(seq_len)
-                if seq_len <= 0:
+                if seq_len <= 0 or seq_len % 4 != 0:
                     raise ValueError
             except Exception:
-                raise ValueError(f"task_val_shards[{i}].sequence_length must be a positive integer")
+                raise ValueError(f"task_val_shards[{i}].sequence_length must be a positive integer divisible by 4.")
             norm_task_list.append({
                 "type": vtype,
                 "path": path,
