@@ -94,6 +94,9 @@ class TaskDataGenerator(DataGeneratorProtocol):
         self._debug_logging = logger.isDebugEnabled()
         self._use_non_blocking = str(self.device).startswith("cuda") and torch.cuda.is_available()
 
+    def get_sequence_length(self):
+        return self.sequence_length
+
     def _load_next(self):
         d = next(self._file_iter)
         self._shard = _Shard(d)

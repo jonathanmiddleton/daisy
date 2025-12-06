@@ -7,6 +7,7 @@ import torch
 import torch.distributed as dist
 from torch import nn
 
+from data import DataGeneratorProtocol
 from training.optim import get_num_window_blocks
 from tools.master_logger import MasterLogger
 
@@ -36,10 +37,12 @@ class Evaluator:
 
     def __init__(
         self,
-        data_generator: Any,
+        data_generator: DataGeneratorProtocol,
         distributed_enabled: bool,
         rank: int,
+        world_size: int,
         attn_window_len: int,
+        global_val_tokens: int,
         val_type: str = "pretraining",  # "pretraining" or "task"
         log_samples: bool = False,
         sample_log_path: Optional[str] = None,
@@ -49,10 +52,10 @@ class Evaluator:
         self._distributed_enabled = bool(distributed_enabled)
         self._rank = int(rank or 0)
         self._val_type = val_type
-        self._attn_window_len = int(attn_window_len)
-
-        # Approximate global tokens processed per eval step
-        self._world_batch_tokens: Optional[int] = None
+        self._attn_window_len = attn_window_len
+        self._global_val_tokens = global_val_tokens
+        self._world_size = world_size
+        self._sequence_length = data_generator.get_sequence_length()
 
         # Per-run bookkeeping
         self._last_val_loss: Optional[float] = None
@@ -93,14 +96,6 @@ class Evaluator:
                 "Evaluator: distributed_enabled=True but dist process group is not initialized"
             )
 
-    @property
-    def world_batch_tokens(self) -> Optional[int]:
-        """
-        Approximate number of global tokens processed per eval step from the
-        most recent eval() call.
-        """
-        return self._world_batch_tokens
-
     def reset_generator(self) -> None:
         """
         Reset the underlying data generator, if it exposes a 'reset' method.
@@ -108,21 +103,8 @@ class Evaluator:
         reset = getattr(self._ddg, "reset", None)
         if callable(reset):
             reset()
-
-    def _compute_world_batch_tokens(self, inputs: torch.Tensor) -> int:
-        """
-        Compute approximate global tokens per eval step from the local batch.
-        """
-        local_tokens = int(inputs.numel())
-        # Determine the effective world size for computing GLOBAL tokens per step.
-        # If running with torch.distributed enabled, use the actual process group size.
-        # Otherwise (e.g., unit tests simulating per-rank calls without dist), try to
-        # read the generator's declared world_size; default to 1 if unavailable.
-        if self._distributed_enabled:
-            world_size = dist.get_world_size()
         else:
-            world_size = int(getattr(self._ddg, "world_size", 1))
-        return local_tokens * world_size
+            logger.warning(f"[eval] Generator '{self._ddg}' does not expose a 'reset' method.")
 
     def _log_sample(
         self,
@@ -174,36 +156,25 @@ class Evaluator:
                 f"to '{self._sample_log_path}': {e}"
             )
 
-    def eval(self, model: nn.Module, total_tokens: int, schedule: float) -> Dict[str, float]:
+    def eval(self, model: nn.Module, schedule: float) -> Dict[str, float]:
         """
-        Run evaluation on approximately 'total_tokens' global tokens.
-
         The underlying generator is assumed to yield (inputs, targets) pairs
         that are directly consumable by the model, as in training.
-
+        
         Returns a dict with:
             - 'val_loss': average loss over eval steps
             - 'val_acc': always None (placeholder for compatibility)
             - 'epoch': always None (no epoch tracking)
             - 'ema_dloss_per_token': exponential moving average of d(loss)/d(token)
         """
-        if logger.isDebugEnabled():
-            logger.debug(f"[eval] eval(total_tokens={total_tokens})")
-        if total_tokens <= 0:
-            raise ValueError("Evaluator.eval: total_tokens must be > 0")
-
         device = next(model.parameters()).device
         model_was_training = model.training
         model.eval()
 
         # First batch defines the approximate world-batch token span
         inputs, targets = next(self._ddg)
-        self._world_batch_tokens = self._compute_world_batch_tokens(inputs)
-        world_batch_tokens = self._world_batch_tokens
 
-        # Number of eval steps based on target global tokens
-        # (integer division: we may use slightly fewer tokens than requested)
-        steps = max(1, total_tokens // world_batch_tokens)
+        steps = max(1, self._global_val_tokens // self._sequence_length // self._world_size)
 
         loss_acc = torch.zeros((), device=device, dtype=torch.float32)
 
@@ -242,7 +213,7 @@ class Evaluator:
         cur_val = float(loss_acc.item() / steps)
 
         # Update EMA of d(loss)/d(token) based on requested token budget
-        tokens_since_last = total_tokens
+        tokens_since_last = self._global_val_tokens
         if self._last_val_loss is not None and tokens_since_last > 0:
             dpt = (cur_val - self._last_val_loss) / tokens_since_last
             if self._ema_dloss_per_token is None:

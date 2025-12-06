@@ -40,7 +40,7 @@ def test_parse_grid_and_inprocess_runs(monkeypatch):
 
     # Two values for lr_scale => 2 in-process runs handled by single subprocess
     argv = [
-        "config/test/micro-dclm.yml",
+        "../config/test/test_tiny_model.yml",
         "--grid", "lr_scale=0.5,1.0",
         # plus a singleton override forwarded through positional list
         "wandb_log=false",

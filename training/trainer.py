@@ -385,48 +385,30 @@ class TrainingSession:
             tokens_per_step = world_size * args.training_sequence_length
         else:
             pad_to_multiple = WINDOW_BLOCK_SIZE if device_type == "cuda" else 1
-            train_ddg = TaskDataGenerator(
-                root=args.task_train_root,
-                split=getattr(args, "task_train_split", "train"),
-                global_batch_size=world_size,
-                world_size=world_size,
-                rank=rank,
-                seed=int(getattr(args, "task_seed", 1337)),
-                device=device_type,
-                start_shard=begin_shard,
-                drop_remainder=False,
-                infinite=True,
-                squeeze_singleton_batch=True,
-                pad_to_multiple=pad_to_multiple,
-            )
+            train_ddg = TaskDataGenerator(root=args.task_train_root, split=getattr(args, "task_train_split", "train"),
+                                          sequence_length=args.training_sequence_length, world_size=world_size,
+                                          rank=rank, seed=int(getattr(args, "task_seed", 1337)), device=device_type,
+                                          start_shard=begin_shard)
             # For Task SFT we use dynamic token counting
             tokens_per_step = None
 
             task_val_shards = getattr(args, "task_val_shards", []) or []
             for v in task_val_shards:
-                label = v.get("type", "task")
+                label = v.get("type")
                 path = v.get("path")
-                split = v.get("split", "val")
+                split = v.get("split")
                 t_tokens = int(v.get("target_tokens"))
-                ddg = TaskDataGenerator(
-                    root=path,
-                    split=split,
-                    global_batch_size=world_size,
-                    world_size=world_size,
-                    rank=rank,
-                    seed=int(getattr(args, "task_seed", 1337)),
-                    device=device_type,
-                    start_shard=None,
-                    drop_remainder=False,
-                    infinite=True,
-                    squeeze_singleton_batch=True,
-                    pad_to_multiple=pad_to_multiple,
-                )
+                seq_len = int(v.get("sequence_length"))
+                ddg = TaskDataGenerator(root=path, split=split, sequence_length=seq_len, world_size=world_size,
+                                        rank=rank, seed=int(getattr(args, "task_seed", 1337)), device=device_type,
+                                        start_shard=None)
                 ev = Evaluator(
                     data_generator=ddg,
                     distributed_enabled=self.rt.use_distributed,
                     rank=rank,
+                    world_size=world_size,
                     attn_window_len=args.train_attention_window_len,
+                    global_val_tokens=t_tokens,
                     val_type='task',
                     log_samples=getattr(args, "task_val_debug_log_samples", False),
                 )
@@ -450,7 +432,9 @@ class TrainingSession:
                     data_generator=ddg,
                     distributed_enabled=self.rt.use_distributed,
                     rank=self.rt.rank,
+                    world_size=world_size,
                     attn_window_len=args.train_attention_window_len,
+                    global_val_tokens=t_tokens,
                     val_type='pretraining',
                 )
                 val_evals.append((label, ev, t_tokens))

@@ -32,8 +32,8 @@ class DistributedDataGenerator:
 
         self.files: list[Path] = files
         self.world_size = int(world_size)
-        self.local_batch_size = int(sequence_length)
-        self.global_batch_size = self.world_size * self.local_batch_size
+        self.sequence_length = int(sequence_length)
+        self.global_batch_size = self.world_size * self.sequence_length
         self.rank = int(rank)
         self.device = device
         self._use_non_blocking = str(self.device).startswith("cuda") and torch.cuda.is_available()
@@ -54,6 +54,9 @@ class DistributedDataGenerator:
         self._tokens: torch.Tensor = _load_data_shard(self._current_file)
         self._pos: int = 0
 
+    def get_sequence_length(self):
+        return self.sequence_length
+
     def reset(self):
         """Reset the generator to the beginning of the current file ordering."""
         self._file_iter = itertools.cycle(self._files_ordered)
@@ -70,8 +73,8 @@ class DistributedDataGenerator:
             self._current_file = next(self._file_iter)
             self._tokens = _load_data_shard(self._current_file)
             self._pos = 0
-        start = self._pos + self.rank * self.local_batch_size
-        buf = self._tokens[start:][: self.local_batch_size + 1]
+        start = self._pos + self.rank * self.sequence_length
+        buf = self._tokens[start:][: self.sequence_length + 1]
         inputs = buf[:-1].to(device=self.device, dtype=torch.int32, non_blocking=self._use_non_blocking)
         targets = buf[1:].to(device=self.device, dtype=torch.int64, non_blocking=self._use_non_blocking)
         self._pos += self.global_batch_size

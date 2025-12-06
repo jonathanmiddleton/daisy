@@ -78,7 +78,7 @@ class DummyModel(nn.Module):
         return logits, kv
 
     @torch.no_grad()
-    def step(self, token_id: torch.Tensor, k_ctxs, v_ctxs, pos: int, window: int):
+    def step(self, token_id: torch.Tensor, k_ctxs, v_ctxs, pos: int):
         # Record contexts to verify KV tensors passed from cache
         self.last_k_ctxs = [kc.clone() for kc in k_ctxs]
         self.last_v_ctxs = [vc.clone() for vc in v_ctxs]
