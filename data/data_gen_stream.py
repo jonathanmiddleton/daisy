@@ -37,6 +37,7 @@ class DistributedDataGenerator:
         self.rank = int(rank)
         self.device = device
         self._use_non_blocking = str(self.device).startswith("cuda") and torch.cuda.is_available()
+        self.debug_logging = logger.isDebugEnabled()
 
         # Determine starting file index using a 1-based shard number with wrap-around safety
         if start_shard is not None:
@@ -65,7 +66,7 @@ class DistributedDataGenerator:
 
     def __next__(self):
         if self._pos + self.global_batch_size + 1 >= len(self._tokens):
-            logger.debug(f"Current file: {self._current_file}")
+            if self.debug_logging: logger.debug(f"Current file: {self._current_file}")
             self._current_file = next(self._file_iter)
             self._tokens = _load_data_shard(self._current_file)
             self._pos = 0
