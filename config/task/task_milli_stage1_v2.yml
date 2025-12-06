@@ -12,24 +12,25 @@ task_val_shards:
   - type: "instruct-tasks"
     path: "data/instruct_mix/"
     split: "val_stage_00"
-    target_tokens: 80_000
+    target_tokens: 10_485_760
+    sequence_length: 131_072
 val_shards:
   - type: "dclm_baseline"
     path: "data/dclm_baseline/dclm_baseline_val_000000.bin"
-    target_tokens: 10_393_600
-    sequence_length: 37_120
+    target_tokens: 10_485_760
+    sequence_length: 131_072
 
-# Run length: PER-RANK token budget
+
 target_tokens: 10_000_000
-val_loss_every_tokens: 50_000
-log_interval: 74_240
-# Hard max example length
-train_attention_window_len: 4096
+val_loss_every_tokens: 32_768
+log_interval: 32_768
+
+train_attention_window_len: 8192
 training_sequence_length: 37_120
 # Checkpoint
 init_checkpoint: ""
 # Torch config
-torch.coordinate_descent_tuning: false
+torch.coordinate_descent_tuning: true
 
 cooldown_frac: 1.0
 learning_rate_floor: 0.0

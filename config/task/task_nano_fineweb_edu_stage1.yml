@@ -1,8 +1,8 @@
 # Logging
 wandb_log: true
 wandb_project: 'daisy'
-wandb_run_name: 'milli-dclm-sparse-task-stage1'
-wandb_group: 'milli-dclm-sparse-task'
+wandb_run_name: 'nano-fineweb-edu-task-stage1'
+wandb_group: 'nano-fineweb-edu-task'
 # SFT
 train_mode: "task"
 task_train_root: "data/instruct_mix"
@@ -15,8 +15,8 @@ task_val_shards:
     target_tokens: 10_485_760
     sequence_length: 131_072
 val_shards:
-  - type: "dclm_baseline"
-    path: "data/dclm_baseline/dclm_baseline_val_000000.bin"
+  - type: "fineweb-edu"
+    path: "data/fineweb-edu/edu_fineweb_val_*.bin"
     target_tokens: 10_485_760
     sequence_length: 131_072
 
@@ -24,7 +24,7 @@ target_tokens: 10_000_000
 val_loss_every_tokens: 32_768
 log_interval: 32_768
 
-train_attention_window_len: 8192
+train_attention_window_len: 2048
 training_sequence_length: 32_768
 # Checkpoint
 init_checkpoint: ""
@@ -45,15 +45,15 @@ optimizers:
       - group: head_params
         lr: 1.732e-4
       - group: embed_params
-        frozen: true
+        lr: 1.732e-6
       - group: scalar_params
-        frozen: true
+        lr: 6.495e-6
   - type: Muon
     momentum: .95
     weight_decay: 0.1
     params:
       - group: hidden_matrix_params
-        lr: 1.25e-3
+        lr: 1.25e-4
 full_windows: true
 # Gradient accumulation
 grad_acc_steps: 1
@@ -62,4 +62,4 @@ checkpoint_warmup_tokens:   1     # token warmup before checkpoints
 checkpoint_per_n_tokens:  1         # checkpoint interval by tokens
 save_checkpoint: true
 # Model Definition
-model_spec: daisy_milli_sparse
+model_spec: daisy_nano
