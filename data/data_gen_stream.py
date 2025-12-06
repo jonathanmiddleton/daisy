@@ -20,7 +20,7 @@ def _load_data_shard(file: Path):
     return tokens
 
 class DistributedDataGenerator:
-    def __init__(self, filename_pattern: str, batch_size: int, rank: int, world_size: int, start_shard: int | None = None, device: str = "cuda"):
+    def __init__(self, filename_pattern: str, sequence_length: int, rank: int, world_size: int, start_shard: int | None = None, device: str = "cuda"):
         # Resolve files matching the pattern; support absolute and relative paths
         if filename_pattern.startswith("/"):
             p = Path(filename_pattern)
@@ -29,13 +29,12 @@ class DistributedDataGenerator:
             files = sorted(Path.cwd().glob(filename_pattern))
         if not files:
             raise FileNotFoundError(f"No files matched pattern: {filename_pattern}")
-        assert batch_size % world_size == 0
 
         self.files: list[Path] = files
-        self.batch_size = int(batch_size)
         self.world_size = int(world_size)
+        self.local_batch_size = int(sequence_length)
+        self.global_batch_size = self.world_size * self.local_batch_size
         self.rank = int(rank)
-        self.local_batch_size = self.batch_size // self.world_size
         self.device = device
         self._use_non_blocking = str(self.device).startswith("cuda") and torch.cuda.is_available()
 
@@ -65,7 +64,7 @@ class DistributedDataGenerator:
         return self
 
     def __next__(self):
-        if self._pos + self.batch_size + 1 >= len(self._tokens):
+        if self._pos + self.global_batch_size + 1 >= len(self._tokens):
             logger.debug(f"Current file: {self._current_file}")
             self._current_file = next(self._file_iter)
             self._tokens = _load_data_shard(self._current_file)
@@ -74,7 +73,7 @@ class DistributedDataGenerator:
         buf = self._tokens[start:][: self.local_batch_size + 1]
         inputs = buf[:-1].to(device=self.device, dtype=torch.int32, non_blocking=self._use_non_blocking)
         targets = buf[1:].to(device=self.device, dtype=torch.int64, non_blocking=self._use_non_blocking)
-        self._pos += self.batch_size
+        self._pos += self.global_batch_size
         return inputs, targets
 
 

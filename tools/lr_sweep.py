@@ -526,7 +526,7 @@ if __name__ == "__main__":
     rank = int(os.environ.get("RANK", "0"))
     data_loader = DistributedDataGenerator(
         params.train_shards,
-        world_size * params.training_sequence_length,
+        params.training_sequence_length,
         rank=rank,
         world_size=world_size,
         device=device,

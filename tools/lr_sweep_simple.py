@@ -64,10 +64,9 @@ def main():
             m.bfloat16()
 
     # Single-rank data generator (no DDP)
-    global_batch = int(hp.training_sequence_length)  # world_size=1
     ddg = DistributedDataGenerator(
         hp.train_shards,
-        batch_size=global_batch,
+        sequence_length=hp.training_sequence_length,
         rank=0,
         world_size=1,
         start_shard=args.begin_shard,

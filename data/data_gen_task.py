@@ -44,7 +44,7 @@ def _stable_int_from_name(name: str) -> int:
 class TaskDataGenerator:
     def __init__(self, root: str,
                  split: str,
-                 batch_size: int,
+                 global_batch_size: int,
                  world_size: int = 1,
                  rank: int = 0,
                  seed: int = 1337,
@@ -54,14 +54,14 @@ class TaskDataGenerator:
                  infinite: bool = True,
                  squeeze_singleton_batch: bool = True,
                  pad_to_multiple: int = 1
-        ):
+                 ):
         p = Path(root) / split
         self.files = sorted([d for d in p.iterdir() if d.is_dir() and (d / "meta.json").exists()])
         if not self.files: raise FileNotFoundError(f"no shards in {p}")
-        assert batch_size % world_size == 0
-        self.batch_size = int(batch_size)
+        assert global_batch_size % world_size == 0
+        self.batch_size = int(global_batch_size)
         self.world_size = int(world_size)
-        self.local_bsz = batch_size // world_size
+        self.local_bsz = global_batch_size // world_size
         self.rank = int(rank)
         self.seed = int(seed)
         self.device = torch.device(device)
@@ -101,7 +101,6 @@ class TaskDataGenerator:
 
     def __iter__(self): return self
 
-#TODO read shards like data_gen_stream with pinned mem on CUDA
     def __next__(self):
         if self._shard is None: self._load_next()
         b = []

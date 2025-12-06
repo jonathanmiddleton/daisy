@@ -376,7 +376,7 @@ class TrainingSession:
         if not is_task:
             train_ddg = DistributedDataGenerator(
                 filename_pattern=args.train_shards,
-                batch_size=world_size * args.training_sequence_length,
+                sequence_length=args.training_sequence_length,
                 rank=rank,
                 world_size=world_size,
                 start_shard=begin_shard,
@@ -388,7 +388,7 @@ class TrainingSession:
             train_ddg = TaskDataGenerator(
                 root=args.task_train_root,
                 split=getattr(args, "task_train_split", "train"),
-                batch_size=world_size,
+                global_batch_size=world_size,
                 world_size=world_size,
                 rank=rank,
                 seed=int(getattr(args, "task_seed", 1337)),
@@ -411,7 +411,7 @@ class TrainingSession:
                 ddg = TaskDataGenerator(
                     root=path,
                     split=split,
-                    batch_size=world_size,
+                    global_batch_size=world_size,
                     world_size=world_size,
                     rank=rank,
                     seed=int(getattr(args, "task_seed", 1337)),
@@ -443,9 +443,9 @@ class TrainingSession:
                 val_batch = self.rt.world_size * seq_len
                 if t_tokens % val_batch != 0:
                     raise ValueError(
-                        f"val shard '{label}': target_tokens ({t_tokens}) must be divisible by val_batch_size ({val_batch})"
+                        f"val shard '{label}': target_tokens ({t_tokens}) must be divisible by global batch size {val_batch} (sequence_length*world_size)."
                     )
-                ddg = DistributedDataGenerator(path, val_batch, self.rt.rank, self.rt.world_size, device=device_type)
+                ddg = DistributedDataGenerator(path, seq_len, self.rt.rank, self.rt.world_size, device=device_type)
                 ev = Evaluator(
                     data_generator=ddg,
                     distributed_enabled=self.rt.use_distributed,
@@ -468,7 +468,7 @@ class TrainingSession:
         per_ds_results: list[tuple[str, dict]] = []
         for label, ev, target_tokens in val_evals:
             logger.info(f"[eval] start dataset={label} target_tokens={target_tokens})")
-            out = ev.eval(model=self.rt.model, total_tokens=target_tokens, schedule=progress.s)
+            out = ev.eval(model=self.rt.model, schedule=progress.s)
             if logger.isDebugEnabled(): logger.debug(f"[eval] finished dataset={label} out={out}")
             per_ds_results.append((label, out))
 

@@ -89,7 +89,7 @@ def prompts_from_token_shards(pattern: str, device: str, count: int, bucket_lens
     from data.data_gen_stream import DistributedDataGenerator
     import torch
 
-    gen = DistributedDataGenerator(filename_pattern=pattern, batch_size=128, rank=0, world_size=1, device=device)
+    gen = DistributedDataGenerator(filename_pattern=pattern, sequence_length=128, rank=0, world_size=1, device=device)
     out: List[Prompt] = []
     for i in range(count):
         inputs, _ = next(gen)
